@@ -39,6 +39,10 @@
 #include <mach/htc_gauge.h>
 #include <mach/htc_charger.h>
 #include <mach/htc_battery_cell.h>
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#endif
 #define MSPERIOD(end, start)	ktime_to_ms(ktime_sub(end, start))
 
 #define HTC_BATT_CHG_DIS_BIT_EOC	(1)
@@ -432,7 +436,13 @@ int htc_charger_event_notify(enum htc_charger_event event)
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_SRC_USB: 
-		latest_chg_src = CHARGER_USB;
+		if (force_fast_charge == 1) {
+			printk("[FASTCHARGE] Forcing CHARGER_AC");
+			latest_chg_src = CHARGER_AC;
+		} else {
+			printk("[FASTCHARGE] NOT set, using normal CHARGER_USB");
+			latest_chg_src = CHARGER_USB;
+		}
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_SRC_AC: 
@@ -453,10 +463,13 @@ int htc_charger_event_notify(enum htc_charger_event event)
 								UNKNOWN_USB_DETECT_DELAY_MS)));
 		break;
 	case HTC_CHARGER_EVENT_SRC_UNKNOWN_USB: 
-		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_FAST_CHARGE)
+		if (force_fast_charge == 1) {
+			printk("[FASTCHARGE] Forcing CHARGER_AC");
 			latest_chg_src = CHARGER_AC;
-		else
+		} else {
+			printk("[FASTCHARGE] NOT set, using normal CHARGER_UNKNOWN_USB");
 			latest_chg_src = CHARGER_UNKNOWN_USB;
+		}
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_OVP:
@@ -517,7 +530,6 @@ static int batt_alarm_config(unsigned long lower_threshold,
 #endif
 {
 	int rc = 0;
-
 	BATT_LOG("%s(lw = %lu, up = %lu)", __func__,
 		lower_threshold, upper_threshold);
 	rc = pm8058_batt_alarm_state_set(0, 0);
@@ -525,13 +537,11 @@ static int batt_alarm_config(unsigned long lower_threshold,
 		BATT_ERR("state_set disabled failed, rc=%d", rc);
 		goto done;
 	}
-
 	rc = pm8058_batt_alarm_threshold_set(lower_threshold, upper_threshold);
 	if (rc) {
 		BATT_ERR("threshold_set failed, rc=%d!", rc);
 		goto done;
 	}
-
 #ifdef CONFIG_HTC_BATT_ALARM
 	rc = pm8058_batt_alarm_state_set(1, 0);
 	if (rc) {
@@ -539,7 +549,6 @@ static int batt_alarm_config(unsigned long lower_threshold,
 		goto done;
 	}
 #endif
-
 done:
 	return rc;
 }
@@ -552,15 +561,10 @@ static int batt_clear_voltage_alarm(void)
 		BATT_ERR("state_set disabled failed, rc=%d", rc);
 	return rc;
 }
-
 static int batt_set_voltage_alarm_mode(int mode)
 {
 	int rc = 0;
-
-
 	BATT_LOG("%s , mode:%d\n", __func__, mode);
-
-
 	mutex_lock(&batt_set_alarm_lock);
 	switch (mode) {
 	case BATT_ALARM_DISABLE_MODE:
@@ -586,20 +590,16 @@ static int batt_set_voltage_alarm_mode(int mode)
 	return rc;
 }
 #endif
-
 static int battery_alarm_notifier_func(struct notifier_block *nfb,
 					unsigned long value, void *data);
 static struct notifier_block battery_alarm_notifier = {
 	.notifier_call = battery_alarm_notifier_func,
 };
-
 static int battery_alarm_notifier_func(struct notifier_block *nfb,
 					unsigned long status, void *data)
 {
-
 #ifdef CONFIG_HTC_BATT_ALARM
 	BATT_LOG("%s \n", __func__);
-
 	if (battery_vol_alarm_mode == BATT_ALARM_CRITICAL_MODE) {
 		BATT_LOG("%s(): CRITICAL_MODE counter = %d", __func__,
 			htc_batt_timer.batt_critical_alarm_counter + 1);
@@ -664,8 +664,18 @@ static void cable_status_notifier_func(enum usb_connect_type online)
 
 	switch (online) {
 	case CONNECT_TYPE_USB:
+#ifdef CONFIG_FORCE_FAST_CHARGE
+		if (force_fast_charge == 1) {
+			BATT_LOG("cable USB forced fast charge");
+			htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_AC);
+		} else {
+			BATT_LOG("USB charger");
+			htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_USB);
+		}
+#else
 		BATT_LOG("USB charger");
 		htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_USB);
+#endif
 		
 		break;
 	case CONNECT_TYPE_AC:
@@ -714,7 +724,6 @@ static void cable_status_notifier_func(enum usb_connect_type online)
 #if 0 
 	htc_batt_timer.alarm_timer_flag =
 			(unsigned int)htc_batt_info.rep.charging_source;
-
 	update_wake_lock(htc_batt_info.rep.charging_source);
 #endif
 	mutex_unlock(&cable_notifier_lock);
@@ -1257,7 +1266,6 @@ static int32_t htc_batt_get_battery_adc(void)
 	u32 vref = 0;
 	u32 battid_adc = 0;
 	struct battery_adc_reply adc;
-
 	
 	ret = pm8058_htc_config_mpp_and_adc_read(
 			adc.adc_voltage,
@@ -1292,18 +1300,13 @@ static int32_t htc_batt_get_battery_adc(void)
 			CHANNEL_ADC_BATT_AMON,
 			htc_batt_info.mpp_config->battid[XOADC_MPP],
 			htc_batt_info.mpp_config->battid[PM_MPP_AIN_AMUX]);
-
 	vref = htc_batt_getmidvalue(adc.adc_voltage);
 	battid_adc = htc_batt_getmidvalue(adc.adc_battid);
-
 	BATT_LOG("%s , vref:%d, battid_adc:%d, battid:%d\n", __func__,  vref, battid_adc, battid_adc * 1000 / vref);
-
 	if (ret)
 		goto get_adc_failed;
-
 	memcpy(&htc_batt_info.adc_data, &adc,
 		sizeof(struct battery_adc_reply));
-
 get_adc_failed:
 	return ret;
 }
@@ -2585,11 +2588,8 @@ static void mbat_in_func(struct work_struct *work)
 static irqreturn_t mbat_int_handler(int irq, void *data)
 {
 	struct htc_battery_platform_data *pdata = data;
-
 	disable_irq_nosync(pdata->gpio_mbat_in);
-
 	schedule_delayed_work(&mbat_in_struct, msecs_to_jiffies(50));
-
 	return IRQ_HANDLED;
 }
 #endif
