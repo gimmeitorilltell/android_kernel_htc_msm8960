@@ -72,7 +72,7 @@ int new_force_fast_charge;
 
 sscanf(buf, "%du", &new_force_fast_charge);
 
-if (new_force_fast_charge >= FAST_CHARGE_DISABLED && new_force_fast_charge <= FAST_CHARGE_FORCE_AC_IF_NO_USB) {
+if (new_force_fast_charge >= FAST_CHARGE_DISABLED && new_force_fast_charge <= FAST_CHARGE_FORCE_AC_IF_NO_USB && new_force_fast_charge <= FAST_CHARGE_FORCE_AC) {
 
 	/* update only if valid value provided */
 	force_fast_charge = new_force_fast_charge;
@@ -228,18 +228,18 @@ int force_fast_charge_init(void)
 	is_fast_charge_forced = FAST_CHARGE_NOT_FORCED; /* Consider fast charge is not forced at start */
 	current_charge_mode = CURRENT_CHARGE_MODE_DISCHARGING; /* Consider we are discharging at start */
 
-        force_fast_charge_kobj = kobject_create_and_add("fast_charge", kernel_kobj);
-        if (!force_fast_charge_kobj) {
-                return -ENOMEM;
-        }
-        force_fast_charge_retval = sysfs_create_group(force_fast_charge_kobj, &force_fast_charge_attr_group);
-        USB_peripheral_detected_retval = sysfs_create_group(force_fast_charge_kobj, &USB_peripheral_detected_attr_group);
-        USB_porttype_detected_retval = sysfs_create_group(force_fast_charge_kobj, &USB_porttype_detected_attr_group);
-        is_fast_charge_forced_retval = sysfs_create_group(force_fast_charge_kobj, &is_fast_charge_forced_attr_group);
-        current_charge_mode_retval = sysfs_create_group(force_fast_charge_kobj, &current_charge_mode_attr_group);
-        if (force_fast_charge_retval && USB_peripheral_detected_retval && USB_porttype_detected_retval && is_fast_charge_forced_retval && current_charge_mode_retval)
-                kobject_put(force_fast_charge_kobj);
-        return (force_fast_charge_retval && USB_peripheral_detected_retval && USB_porttype_detected_retval && is_fast_charge_forced_retval && current_charge_mode_retval);
+	force_fast_charge_kobj = kobject_create_and_add("fast_charge", kernel_kobj);
+	if (!force_fast_charge_kobj) {
+		return -ENOMEM;
+	}
+	force_fast_charge_retval = sysfs_create_group(force_fast_charge_kobj, &force_fast_charge_attr_group);
+	USB_peripheral_detected_retval = sysfs_create_group(force_fast_charge_kobj, &USB_peripheral_detected_attr_group);
+	USB_porttype_detected_retval = sysfs_create_group(force_fast_charge_kobj, &USB_porttype_detected_attr_group);
+	is_fast_charge_forced_retval = sysfs_create_group(force_fast_charge_kobj, &is_fast_charge_forced_attr_group);
+	current_charge_mode_retval = sysfs_create_group(force_fast_charge_kobj, &current_charge_mode_attr_group);
+	if (force_fast_charge_retval && USB_peripheral_detected_retval && USB_porttype_detected_retval && is_fast_charge_forced_retval && current_charge_mode_retval)
+		kobject_put(force_fast_charge_kobj);
+	return (force_fast_charge_retval && USB_peripheral_detected_retval && USB_porttype_detected_retval && is_fast_charge_forced_retval && current_charge_mode_retval);
 }
 /* end sysfs interface */
 
