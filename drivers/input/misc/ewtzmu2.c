@@ -1157,6 +1157,7 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 			goto err_out;
 		}
 		EWTZMU2_Chip_Set_SampleRate(gyro_sample_rate);
+	break;
 
 	case EW_IOCTL_READ_GYRODATA:
 		data = (void __user *) arg;
