@@ -1211,9 +1211,9 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 	break;
 
 	case EW_IOCTL_READ_PEDOPARAM:
-		read_lock(&ewtzmumid_data.ctrllock);
+		read_lock(&ewtzmumid_data.datalock);
 		memcpy(pedoparam, &ewtzmumid_data.pedometerparam[0], sizeof(pedoparam));
-		read_unlock(&ewtzmumid_data.ctrllock);
+		read_unlock(&ewtzmumid_data.datalock);
 		data = (void __user *) arg;
 		if (data == NULL)
 		break;
@@ -1231,9 +1231,9 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		memcpy(&ewtzmumid_data.pedometerparam[0], pedoparam, sizeof(pedoparam));
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EW_IOCTL_READ_CONTROL:
@@ -1324,9 +1324,9 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 	break;
 
 	case EW_IOCTL_GET_DIRPOLARITY:
-		read_lock(&ewtzmumid_data.ctrllock);
+		read_lock(&ewtzmumid_data.datalock);
 		memcpy(dirpolarity, &ewtzmumid_data.dirpolarity[0], sizeof(dirpolarity));
-		read_unlock(&ewtzmumid_data.ctrllock);
+		read_unlock(&ewtzmumid_data.datalock);
 		data = (void __user *) arg;
 		if (data == NULL)
 			break;
@@ -1355,9 +1355,9 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		memcpy(&ewtzmumid_data.rotationvector[0], rotation_vector, sizeof(rotation_vector));
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EW_IOCTL_READ_LINEAR_ACCEL:
@@ -1379,11 +1379,11 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		ewtzmumid_data.linear_accel.x = ladata[0];
 		ewtzmumid_data.linear_accel.y = ladata[1];
 		ewtzmumid_data.linear_accel.z = ladata[2];
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EW_IOCTL_READ_GRAVITY:
@@ -1405,11 +1405,11 @@ static long ewtzmu2_ioctl(/*struct inode *inode,*/struct file *file, unsigned in
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		ewtzmumid_data.gravity.x = gravitydata[0];
 		ewtzmumid_data.gravity.y = gravitydata[1];
 		ewtzmumid_data.gravity.z = gravitydata[2];
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EW_IOCTL_WRITE_I2CDATA:
@@ -1674,9 +1674,9 @@ struct file *file, unsigned int cmd,
 	break;
 
 	case EWDAE_IOCTL_GET_PEDOPARAM:
-		read_lock(&ewtzmumid_data.ctrllock);
+		read_lock(&ewtzmumid_data.datalock);
 		memcpy(pedoparam, &ewtzmumid_data.pedometerparam[0], sizeof(pedoparam));
-		read_unlock(&ewtzmumid_data.ctrllock);
+		read_unlock(&ewtzmumid_data.datalock);
 		data = (void __user *) arg;
 		if (data == NULL)
 			break;
@@ -1694,9 +1694,9 @@ struct file *file, unsigned int cmd,
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		memcpy(&ewtzmumid_data.pedometerparam[0], pedoparam, sizeof(pedoparam));
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EWDAE_IOCTL_GET_CONTROL:
@@ -1724,9 +1724,9 @@ struct file *file, unsigned int cmd,
 	break;
 
 	case EWDAE_IOCTL_GET_DIRPOLARITY:
-		read_lock(&ewtzmumid_data.ctrllock);
+		read_lock(&ewtzmumid_data.datalock);
 		memcpy(dirpolarity, &ewtzmumid_data.dirpolarity[0], sizeof(dirpolarity));
-		read_unlock(&ewtzmumid_data.ctrllock);
+		read_unlock(&ewtzmumid_data.datalock);
 		data = (void __user *) arg;
 		if (data == NULL)
 			break;
@@ -1793,9 +1793,9 @@ struct file *file, unsigned int cmd,
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		memcpy(&ewtzmumid_data.rotationvector[0], rotation_vector, sizeof(rotation_vector));
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 		DIF("rotationvector:%d %d ,%d %d\n",
 			ewtzmumid_data.rotationvector[0], ewtzmumid_data.rotationvector[1],
 			ewtzmumid_data.rotationvector[2], ewtzmumid_data.rotationvector[3]);
@@ -1809,11 +1809,11 @@ struct file *file, unsigned int cmd,
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		ewtzmumid_data.linear_accel.x = ladata[0];
 		ewtzmumid_data.linear_accel.y = ladata[1];
 		ewtzmumid_data.linear_accel.z = ladata[2];
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EWDAE_IOCTL_SET_GRAVITY:
@@ -1824,11 +1824,11 @@ struct file *file, unsigned int cmd,
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		ewtzmumid_data.gravity.x = gravitydata[0];
 		ewtzmumid_data.gravity.y = gravitydata[1];
 		ewtzmumid_data.gravity.z = gravitydata[2];
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 	case EWDAE_IOCTL_GET_AKM_DATA:
 		data = (void __user *) arg;
@@ -2057,9 +2057,9 @@ static long ewtzmu2hal_ioctl(/*struct inode *inode,*/struct file *file, unsigned
 	break;
 
 	case EWHAL_IOCTL_GET_PEDOPARAM:
-		read_lock(&ewtzmumid_data.ctrllock);
+		read_lock(&ewtzmumid_data.datalock);
 		memcpy(pedoparam, &ewtzmumid_data.pedometerparam[0], sizeof(pedoparam));
-		read_unlock(&ewtzmumid_data.ctrllock);
+		read_unlock(&ewtzmumid_data.datalock);
 		data = (void __user *) arg;
 		if (data == NULL)
 			break;
@@ -2077,9 +2077,9 @@ static long ewtzmu2hal_ioctl(/*struct inode *inode,*/struct file *file, unsigned
 			retval = -EFAULT;
 			goto err_out;
 		}
-		write_lock(&ewtzmumid_data.ctrllock);
+		write_lock(&ewtzmumid_data.datalock);
 		memcpy(&ewtzmumid_data.pedometerparam[0], pedoparam, sizeof(pedoparam));
-		write_unlock(&ewtzmumid_data.ctrllock);
+		write_unlock(&ewtzmumid_data.datalock);
 	break;
 
 	case EWHAL_IOCTL_GET_CONTROL:
