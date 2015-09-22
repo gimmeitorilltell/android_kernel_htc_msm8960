@@ -368,6 +368,34 @@ static int nilfs_btree_node_broken(const struct nilfs_btree_node *node,
 	return ret;
 }
 
+/**
+ * nilfs_btree_root_broken - verify consistency of btree root node
+ * @node: btree root node to be examined
+ * @ino: inode number
+ *
+ * Return Value: If node is broken, 1 is returned. Otherwise, 0 is returned.
+ */
+static int nilfs_btree_root_broken(const struct nilfs_btree_node *node,
+				   unsigned long ino)
+{
+	int level, flags, nchildren;
+	int ret = 0;
+
+	level = nilfs_btree_node_get_level(node);
+	flags = nilfs_btree_node_get_flags(node);
+	nchildren = nilfs_btree_node_get_nchildren(node);
+
+	if (unlikely(level < NILFS_BTREE_LEVEL_NODE_MIN ||
+		     level >= NILFS_BTREE_LEVEL_MAX ||
+		     nchildren < 0 ||
+		     nchildren > NILFS_BTREE_ROOT_NCHILDREN_MAX)) {
+		pr_crit("NILFS: bad btree root (inode number=%lu): level = %d, flags = 0x%x, nchildren = %d\n",
+			ino, level, flags, nchildren);
+		ret = 1;
+	}
+	return ret;
+}
+
 int nilfs_btree_broken_node_block(struct buffer_head *bh)
 {
 	int ret;
