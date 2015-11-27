@@ -789,7 +789,7 @@ static void cleanup_glue_dir(struct device *dev, struct kobject *glue_dir)
 		return;
 
 	mutex_lock(&gdp_mutex);
- 	kobject_put(glue_dir);
+	kobject_put(glue_dir);
 	mutex_unlock(&gdp_mutex);
 }
 

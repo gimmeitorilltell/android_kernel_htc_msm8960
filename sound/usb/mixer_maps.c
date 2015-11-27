@@ -50,6 +50,7 @@ struct usbmix_ctl_map {
 
 /*
  * Topology of SB Extigy (see on the wide screen :)
+
 USB_IN[1] --->FU[2]------------------------------+->MU[16]-->PU[17]-+->FU[18]--+->EU[27]--+->EU[21]-->FU[22]--+->FU[23] > Dig_OUT[24]
                                                  ^                  |          |          |                   |
 USB_IN[3] -+->SU[5]-->FU[6]--+->MU[14] ->PU[15]->+                  |          |          |                   +->FU[25] > Dig_OUT[26]
@@ -135,6 +136,7 @@ static struct usbmix_name_map mp3plus_map[] = {
 };
 
 /* Topology of SB Audigy 2 NX
+
           +----------------------------->EU[27]--+
           |                                      v
           | +----------------------------------->SU[29]---->FU[22]-->Dig_OUT[24]

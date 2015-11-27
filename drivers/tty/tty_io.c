@@ -1718,7 +1718,7 @@ int tty_release(struct inode *inode, struct file *filp)
 		if (once) {
 			once = 0;
 			printk(KERN_WARNING "%s: %s: read/write wait queue active!\n",
- 				__func__, tty_name(tty, buf));
+				__func__, tty_name(tty, buf));
 		}
 		tty_unlock();
 		mutex_unlock(&tty_mutex);
