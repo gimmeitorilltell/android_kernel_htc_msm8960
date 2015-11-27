@@ -44,7 +44,6 @@
 #include <linux/fastchg.h>
 #endif
 #define MSPERIOD(end, start)	ktime_to_ms(ktime_sub(end, start))
-#include <linux/fastchg.h>
 
 #define HTC_BATT_CHG_DIS_BIT_EOC	(1)
 #define HTC_BATT_CHG_DIS_BIT_ID		(1<<1)
