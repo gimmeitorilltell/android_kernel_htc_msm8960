@@ -75,6 +75,7 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 	}
 	list_del_rcu(&p->thread_group);
 }
+	list_del_rcu(&p->thread_node);
 
 /*
  * This function expects the tasklist_lock write-locked.
