@@ -28,6 +28,9 @@
 #define TCXONC		0x540A
 #define TCFLSH		0x540B
 #define TIOCEXCL	0x540C
+#define TIOCPMGET	0x5441	/* PM get */
+#define TIOCPMPUT	0x5442	/* PM put */
+#define TIOCPMACT	0x5443	/* PM is active */
 #define TIOCNXCL	0x540D
 #define TIOCSCTTY	0x540E
 #define TIOCGPGRP	0x540F
