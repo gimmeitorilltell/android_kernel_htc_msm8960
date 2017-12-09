@@ -1257,14 +1257,12 @@ restart:
 	}
 
 	/* Latch our state.
-
 	   It is tricky place. We need to grab our state lock and cannot
 	   drop lock on peer. It is dangerous because deadlock is
 	   possible. Connect to self case and simultaneous
 	   attempt to connect are eliminated by checking socket
 	   state. other is TCP_LISTEN, if sk is TCP_LISTEN we
 	   check this before attempt to grab lock.
-
 	   Well, and we have to recheck the state after socket locked.
 	 */
 	st = sk->sk_state;
@@ -1470,7 +1468,7 @@ static void unix_detach_fds(struct scm_cookie *scm, struct sk_buff *skb)
 	UNIXCB(skb).fp = NULL;
 
 	for (i = scm->fp->count-1; i >= 0; i--)
-		unix_notinflight(scm->fp->user, scm->fp->fp[i]);
+		unix_notinflight(scm->fp->fp[i]);
 }
 
 static void unix_destruct_scm(struct sk_buff *skb)
@@ -1536,7 +1534,7 @@ static int unix_attach_fds(struct scm_cookie *scm, struct sk_buff *skb)
 		return -ENOMEM;
 
 	for (i = scm->fp->count - 1; i >= 0; i--)
-		unix_inflight(scm->fp->user, scm->fp->fp[i]);
+		unix_inflight(scm->fp->fp[i]);
 	return max_level;
 }
 
@@ -2010,11 +2008,9 @@ static int unix_dgram_recvmsg(struct kiocb *iocb, struct socket *sock,
 		     apparently wrong)
 		   - clone fds (I chose it for now, it is the most universal
 		     solution)
-
 		   POSIX 1003.1g does not actually define this clearly
 		   at all. POSIX 1003.1g doesn't define a lot of things
 		   clearly however!
-
 		*/
 
 		sk_peek_offset_fwd(sk, size);

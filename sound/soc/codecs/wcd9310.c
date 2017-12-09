@@ -8126,7 +8126,7 @@ static irqreturn_t tabla_slimbus_irq(int irq, void *data)
 				pr_debug("%s: port %x disconnect value %x\n",
 					__func__, i*8 + j, val);
 				port_id = i*8 + j;
-				for (k = 0; k < ARRAY_SIZE(tabla_p->dai); k++) {
+				for (k = 0; k < ARRAY_SIZE(tabla_dai); k++) {
 					ch_mask_temp = 1 << port_id;
 					if (ch_mask_temp &
 						tabla_p->dai[k].ch_mask) {
@@ -8608,11 +8608,6 @@ static const struct file_operations codec_mbhc_debug_ops = {
 };
 #endif
 
-#ifdef CONFIG_SOUND_CONTROL_HAX_GPL
-struct snd_kcontrol_new *gpl_faux_snd_controls_ptr =
-		(struct snd_kcontrol_new *)tabla_snd_controls;
-#endif
-
 static int tabla_codec_probe(struct snd_soc_codec *codec)
 {
 	struct wcd9xxx *control;
@@ -8901,7 +8896,7 @@ static int tabla_codec_remove(struct snd_soc_codec *codec)
 	tabla_codec_enable_bandgap(codec, TABLA_BANDGAP_OFF);
 	if (tabla->mbhc_fw||tabla->mbhc_cal)
 		release_firmware(tabla->mbhc_fw);
-	for (i = 0; i < ARRAY_SIZE(tabla->dai); i++)
+	for (i = 0; i < ARRAY_SIZE(tabla_dai); i++)
 		kfree(tabla->dai[i].ch_num);
 	mutex_destroy(&tabla->codec_resource_lock);
 #ifdef CONFIG_DEBUG_FS
