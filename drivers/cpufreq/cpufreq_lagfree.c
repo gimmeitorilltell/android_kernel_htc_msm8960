@@ -647,7 +647,7 @@ static void __exit cpufreq_gov_dbs_exit(void)
 }
 
 
-MODULE_AUTHOR ("Emilio López <turl@tuxfamily.org>");
+MODULE_AUTHOR ("Emilio L\F3pez <turl@tuxfamily.org>");
 MODULE_DESCRIPTION ("'cpufreq_lagfree' - A dynamic cpufreq governor for "
 		"Low Latency Frequency Transition capable processors "
 		"optimised for use in a battery environment"
