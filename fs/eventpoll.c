@@ -612,7 +612,7 @@ static int ep_scan_ready_list(struct eventpoll *ep,
 	 * Quickly re-inject items left on "txlist".
 	 */
 	list_splice(&txlist, &ep->rdllist);
-	__pm_relax(ep->ws);
+        __pm_relax(ep->ws);
 
 	if (!list_empty(&ep->rdllist)) {
 		/*
@@ -1729,11 +1729,11 @@ SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 	/* The target file descriptor must support poll */
 	error = -EPERM;
 	if (!tfile->f_op || !tfile->f_op->poll)
-		goto error_tgt_fput;
+		epds.events &= ~EPOLLWAKEUP;
 
 	/* Check if EPOLLWAKEUP is allowed */
 	if ((epds.events & EPOLLWAKEUP) && !capable(CAP_BLOCK_SUSPEND))
-		epds.events &= ~EPOLLWAKEUP;
+		goto error_tgt_fput;
 
 	/*
 	 * We have to check that the file structure underneath the file descriptor

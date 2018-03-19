@@ -528,8 +528,8 @@ static enum alarmtimer_restart led_alarm_handler(struct alarm *alarm, ktime_t no
 
 	ldata = container_of(alarm, struct pm8xxx_led_data, led_alarm);
 	queue_work(g_led_work_queue, &ldata->led_work);
-    
-    return ALARMTIMER_NORESTART;
+
+	return ALARMTIMER_NORESTART;
 }
 
 static void led_blink_do_work(struct work_struct *work)
@@ -621,7 +621,7 @@ static ssize_t pm8xxx_led_off_timer_store(struct device *dev,
 	if (off_timer) {
 		interval = ktime_set(off_timer, 0);
 		next_alarm = ktime_add(ktime_get_boottime(), interval);
-        alarm_start_relative(&ldata->led_alarm, next_alarm);
+		alarm_start_relative(&ldata->led_alarm, next_alarm);
 	}
 	return count;
 }
