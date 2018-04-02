@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -44,6 +44,9 @@
 #define POOL_TYPE_HSIC_WRITE	11
 #define POOL_TYPE_HSIC_2_WRITE	12
 #define POOL_TYPE_ALL		10
+
+#define MAX_SSID_PER_RANGE	200
+
 #define MODEM_DATA		0
 #define LPASS_DATA		1
 #define WCNSS_DATA		2
@@ -53,12 +56,21 @@
 #define HSIC_2_DATA		6
 #define SMUX_DATA		10
 #define APPS_PROC		1
-#define MSG_MASK_SIZE 10000
-#define LOG_MASK_SIZE 8000
+/*
+ * Each row contains First (uint32_t), Last (uint32_t), Actual
+ * last (uint32_t) values along with the range of SSIDs
+ * (MAX_SSID_PER_RANGE*uint32_t).
+ * And there are MSG_MASK_TBL_CNT rows.
+ */
+#define MSG_MASK_SIZE		((MAX_SSID_PER_RANGE+3) * 4 * MSG_MASK_TBL_CNT)
+#define MAX_EQUIP_ID		16
+#define MAX_ITEMS_PER_EQUIP_ID	512
+#define LOG_MASK_ITEM_SIZE	(5 + MAX_ITEMS_PER_EQUIP_ID)
+#define LOG_MASK_SIZE		(MAX_EQUIP_ID * LOG_MASK_ITEM_SIZE)
 #define EVENT_MASK_SIZE 1000
 #define USER_SPACE_DATA 8192
 #define PKT_SIZE 4096
-#define MAX_EQUIP_ID 15
+
 #define DIAG_CTRL_MSG_LOG_MASK	9
 #define DIAG_CTRL_MSG_EVENT_MASK	10
 #define DIAG_CTRL_MSG_F3_MASK	11
@@ -258,6 +270,7 @@ struct diagchar_dev {
 	struct diag_ctrl_log_mask *log_mask;
 	struct diag_ctrl_msg_mask *msg_mask;
 	struct diag_ctrl_feature_mask *feature_mask;
+	struct mutex log_mask_mutex;
 	/* State for diag forwarding */
 	int real_time_mode;
 	struct diag_smd_info smd_data[NUM_SMD_DATA_CHANNELS];
@@ -288,9 +301,11 @@ struct diagchar_dev {
 	struct work_struct diag_drain_work;
 	struct workqueue_struct *diag_cntl_wq;
 	uint8_t *msg_masks;
+	uint8_t msg_status;
 	uint8_t *log_masks;
-	int log_masks_length;
+	uint8_t log_status;
 	uint8_t *event_masks;
+	uint8_t event_status;
 	uint8_t log_on_demand_support;
 	struct diag_master_table *table;
 	uint8_t *pkt_buf;

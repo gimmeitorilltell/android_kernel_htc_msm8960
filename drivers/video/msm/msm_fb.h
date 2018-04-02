@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -42,6 +42,7 @@
 
 #include "msm_fb_panel.h"
 #include "mdp.h"
+#include "mdp4.h"
 
 #define MSM_FB_DEFAULT_PAGE_SIZE 2
 #define MFD_KEY  0x11161126
@@ -213,21 +214,14 @@ struct msm_fb_data_type {
 	void *msm_fb_backup;
 	boolean panel_driver_on;
 	int vsync_sysfs_created;
-	void *copy_splash_buf;
-	unsigned char *copy_splash_phys;
+	unsigned long splash_screen_phys[OVERLAY_PIPE_MAX];
+	u32 splash_screen_size[OVERLAY_PIPE_MAX];
+	int cont_splash_enabled;
 	uint32 sec_mapped;
 	uint32 sec_active;
 	uint32 max_map_size;
-#ifdef CONFIG_CABC_DIMMING_SWITCH
-	struct workqueue_struct *dimming_wq;
-	struct work_struct dimming_work;
-	struct timer_list dimming_update_timer;
-#endif
-#ifdef CONFIG_SRE_CONTROL
-	struct workqueue_struct *sre_wq;
-	struct work_struct sre_work;
-	struct timer_list sre_update_timer;
-#endif
+	boolean bf_supported;
+	uint32 base_layer;
 };
 struct msm_fb_backup_type {
 	struct fb_info info;
@@ -249,7 +243,7 @@ int msm_fb_writeback_dequeue_buffer(struct fb_info *info,
 		struct msmfb_data *data);
 int msm_fb_writeback_stop(struct fb_info *info);
 int msm_fb_writeback_terminate(struct fb_info *info);
-int msm_fb_detect_client(const char *name);
+int msm_fb_detect_client(const char *name, struct platform_disp_info *info);
 int calc_fb_offset(struct msm_fb_data_type *mfd, struct fb_info *fbi, int bpp);
 void msm_fb_wait_for_fence(struct msm_fb_data_type *mfd);
 int msm_fb_signal_timeline(struct msm_fb_data_type *mfd);
@@ -259,6 +253,8 @@ void msm_fb_release_busy(struct msm_fb_data_type *mfd);
 #ifdef CONFIG_FB_BACKLIGHT
 void msm_fb_config_backlight(struct msm_fb_data_type *mfd);
 #endif
+int msm_fb_overlay_ioctl(struct fb_info *info, unsigned int cmd,
+			unsigned long arg, int user);
 
 void fill_black_screen(bool on, uint8 pipe_num, uint8 mixer_num);
 int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,

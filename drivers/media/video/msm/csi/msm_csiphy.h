@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, 2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,9 +29,10 @@ struct csiphy_device {
 	struct regulator *csi_vdd;
 };
 
-struct csiphy_cfg_params {
-	struct v4l2_subdev *subdev;
-	void *parms;
+	struct clk *csiphy_clk[3];
+	uint8_t ref_count;
+	uint16_t lane_mask[MAX_CSIPHY];
+	bool reserved_adp;
 };
 
 #define VIDIOC_MSM_CSIPHY_CFG \

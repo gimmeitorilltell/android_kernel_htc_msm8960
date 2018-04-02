@@ -341,7 +341,6 @@ static inline void mminit_validate_memmodel_limits(unsigned long *start_pfn,
 #define ZONE_RECLAIM_FULL	-1
 #define ZONE_RECLAIM_SOME	0
 #define ZONE_RECLAIM_SUCCESS	1
-#endif
 
 extern int hwpoison_filter(struct page *p);
 
@@ -368,5 +367,4 @@ extern void set_pageblock_order(void);
 #define ALLOC_CPUSET		0x40 /* check for correct cpuset */
 #define ALLOC_CMA		0x80 /* allow allocations from CMA areas */
 
-unsigned long reclaim_clean_pages_from_list(struct zone *zone,
-					    struct list_head *page_list);
+#endif	/* __MM_INTERNAL_H */

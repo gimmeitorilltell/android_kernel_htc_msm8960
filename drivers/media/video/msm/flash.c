@@ -1,5 +1,4 @@
-
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -402,6 +401,26 @@ err1:
 			gpio_set_value_cansleep(external->led_en, 1);
 			gpio_set_value_cansleep(external->led_flash_en, 1);
 			usleep_range(2000, 3000);
+			if (sc628a_client) {
+				i2c_client.client = sc628a_client;
+				i2c_client.addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
+				rc = msm_camera_i2c_write(&i2c_client, 0x02,
+					0x06, MSM_CAMERA_I2C_BYTE_DATA);
+			}
+			if (tps61310_client) {
+				i2c_client.client = tps61310_client;
+				i2c_client.addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
+				rc = msm_camera_i2c_write(&i2c_client, 0x01,
+					0x46, MSM_CAMERA_I2C_BYTE_DATA);
+				flash_wq = alloc_workqueue("my_queue",WQ_MEM_RECLAIM,1);
+				work = (struct flash_work *)kmalloc(sizeof(struct flash_work), GFP_KERNEL);
+				if (!work)
+					return -ENOMEM;
+				INIT_WORK( (struct work_struct *)work, flash_wq_function );
+				setup_timer(&flash_timer, flash_timer_callback, 0);
+				mod_timer(&flash_timer, jiffies + msecs_to_jiffies(10000));
+				timer_state = 1;
+			}
 		}
 		rc = sc628a_i2c_write_b_flash(0x02, 0x06);
 		break;

@@ -449,34 +449,10 @@ config DISABLE_MCLK_RAWCHIP_TO_MAINCAM
 	depends on MSM_CAMERA
 	default n
 	---help---
-	  For the design for K2 two MCLK control of rawchip
+	  Omni Vision VGA YUV Sensor
 
-config S5K6A2YA
-	bool "Sensor s5k6a2ya (Samsung 1.6M)"
-	depends on MSM_CAMERA
-	default n
+config AVDEVICE
+	bool "Sensor avdevice (video in)"
+	depends on MSM_CAMERA && MSM_BA_V4L2
 	---help---
-	  Support for S5K6A2YA samsung sensor driver.
-	  It is a Bayer 1.6MP sensor it supports one mipi lanes.
-
-config S5K6AAFX
-	bool "Sensor s5k6aafx (Samsung 1.3M)"
-	depends on MSM_CAMERA
-	default n
-	---help---
-	  Samsung 1.3M without Autofocus
-
-config VD6869
-	bool "Sensor VD6869 (BAYER 4M)"
-	depends on MSM_CAMERA
-	default n
-	---help---
-	ST 4MP Bayer Sensor
-
-config OV4688
-	bool "Sensor ov4688 (BAYER 4M)"
-	depends on MSM_CAMERA
-	default n
-	---help---
-	ov 4MP Bayer Sensor
-
+	  video in device

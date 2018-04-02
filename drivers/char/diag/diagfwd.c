@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2014, 2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -125,6 +125,7 @@ int chk_config_get_id(void)
 		case MSM_CPU_8064:
 		case MSM_CPU_8064AB:
 		case MSM_CPU_8064AA:
+		case MSM_CPU_8064AU:
 			return APQ8064_TOOLS_ID;
 		case MSM_CPU_8930:
 		case MSM_CPU_8930AA:
@@ -155,6 +156,7 @@ int chk_apps_only(void)
 	case MSM_CPU_8064:
 	case MSM_CPU_8064AB:
 	case MSM_CPU_8064AA:
+	case MSM_CPU_8064AU:
 	case MSM_CPU_8930:
 	case MSM_CPU_8930AA:
 	case MSM_CPU_8930AB:
@@ -580,15 +582,24 @@ int diag_device_write(void *buf, int data_type, struct diag_request *write_ptr)
 				err = -1;
 		} else if ((data_type >= 0) &&
 				(data_type < NUM_SMD_DATA_CHANNELS)) {
-			write_ptr->buf = buf;
+			if (write_ptr) {
+				write_ptr->buf = buf;
 #ifdef DIAG_DEBUG
-			printk(KERN_INFO "writing data to USB,"
-				"pkt length %d\n", write_ptr->length);
-			print_hex_dump(KERN_DEBUG, "Written Packet Data to"
-					   " USB: ", 16, 1, DUMP_PREFIX_ADDRESS,
-					    buf, write_ptr->length, 1);
+				printk(KERN_INFO
+					"writing data to USB pkt length %d\n",
+					write_ptr->length);
+				print_hex_dump(KERN_DEBUG,
+					"Written Packet Data to"
+					" USB: ", 16, 1, DUMP_PREFIX_ADDRESS,
+					buf, write_ptr->length, 1);
 #endif /* DIAG DEBUG */
-			err = usb_diag_write(driver->legacy_ch, write_ptr);
+				err = usb_diag_write(driver->legacy_ch,
+							write_ptr);
+			} else {
+				pr_err("diag:%d: Failed to write to USB\n",
+					__LINE__);
+				err = -1;
+			}
 		}
 #ifdef CONFIG_DIAG_SDIO_PIPE
 		else if (data_type == SDIO_DATA) {
@@ -637,11 +648,16 @@ int diag_device_write(void *buf, int data_type, struct diag_request *write_ptr)
 				err = -1;
 			}
 		} else if (data_type == SMUX_DATA) {
+			if (write_ptr) {
 				write_ptr->buf = buf;
 				write_ptr->context = (void *)SMUX;
 				pr_debug("diag: writing SMUX data\n");
 				err = usb_diag_write(diag_bridge[SMUX].ch,
 								 write_ptr);
+			} else {
+				pr_err("diag:%d: Failed to write to USB\n",
+					__LINE__);
+			}
 		}
 #endif
 		APPEND_DEBUG('d');
@@ -833,22 +849,38 @@ int diag_process_apps_pkt(unsigned char *buf, int len)
 		driver->apps_rsp_buf[0] = 0x73;
 		*(int *)(driver->apps_rsp_buf + 4) = 0x1; /* operation ID */
 		*(int *)(driver->apps_rsp_buf + 8) = 0x0; /* success code */
-		*(int *)(driver->apps_rsp_buf + 12) = LOG_GET_ITEM_NUM(LOG_0);
-		*(int *)(driver->apps_rsp_buf + 16) = LOG_GET_ITEM_NUM(LOG_1);
-		*(int *)(driver->apps_rsp_buf + 20) = LOG_GET_ITEM_NUM(LOG_2);
-		*(int *)(driver->apps_rsp_buf + 24) = LOG_GET_ITEM_NUM(LOG_3);
-		*(int *)(driver->apps_rsp_buf + 28) = LOG_GET_ITEM_NUM(LOG_4);
-		*(int *)(driver->apps_rsp_buf + 32) = LOG_GET_ITEM_NUM(LOG_5);
-		*(int *)(driver->apps_rsp_buf + 36) = LOG_GET_ITEM_NUM(LOG_6);
-		*(int *)(driver->apps_rsp_buf + 40) = LOG_GET_ITEM_NUM(LOG_7);
-		*(int *)(driver->apps_rsp_buf + 44) = LOG_GET_ITEM_NUM(LOG_8);
-		*(int *)(driver->apps_rsp_buf + 48) = LOG_GET_ITEM_NUM(LOG_9);
-		*(int *)(driver->apps_rsp_buf + 52) = LOG_GET_ITEM_NUM(LOG_10);
-		*(int *)(driver->apps_rsp_buf + 56) = LOG_GET_ITEM_NUM(LOG_11);
-		*(int *)(driver->apps_rsp_buf + 60) = LOG_GET_ITEM_NUM(LOG_12);
-		*(int *)(driver->apps_rsp_buf + 64) = LOG_GET_ITEM_NUM(LOG_13);
-		*(int *)(driver->apps_rsp_buf + 68) = LOG_GET_ITEM_NUM(LOG_14);
-		*(int *)(driver->apps_rsp_buf + 72) = LOG_GET_ITEM_NUM(LOG_15);
+		*(int *)(driver->apps_rsp_buf + 12) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[0]);
+		*(int *)(driver->apps_rsp_buf + 16) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[1]);
+		*(int *)(driver->apps_rsp_buf + 20) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[2]);
+		*(int *)(driver->apps_rsp_buf + 24) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[3]);
+		*(int *)(driver->apps_rsp_buf + 28) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[4]);
+		*(int *)(driver->apps_rsp_buf + 32) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[5]);
+		*(int *)(driver->apps_rsp_buf + 36) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[6]);
+		*(int *)(driver->apps_rsp_buf + 40) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[7]);
+		*(int *)(driver->apps_rsp_buf + 44) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[8]);
+		*(int *)(driver->apps_rsp_buf + 48) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[9]);
+		*(int *)(driver->apps_rsp_buf + 52) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[10]);
+		*(int *)(driver->apps_rsp_buf + 56) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[11]);
+		*(int *)(driver->apps_rsp_buf + 60) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[12]);
+		*(int *)(driver->apps_rsp_buf + 64) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[13]);
+		*(int *)(driver->apps_rsp_buf + 68) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[14]);
+		*(int *)(driver->apps_rsp_buf + 72) =
+				LOG_GET_ITEM_NUM(log_code_last_tbl[15]);
 		encode_rsp_and_send(75);
 		return 0;
 	}

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2013, 2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,17 +36,7 @@
 #define D(fmt, args...) do {} while (0)
 #endif
 
-static int msm_mctl_pp_vpe_ioctl(struct v4l2_subdev *vpe_sd,
-	struct msm_mctl_pp_cmd *cmd, void *data)
-{
-	int rc = 0;
-	struct msm_mctl_pp_params parm;
-	parm.cmd = cmd;
-	parm.data = data;
-	rc = v4l2_subdev_call(vpe_sd, core, ioctl, VIDIOC_MSM_VPE_CFG, &parm);
-	return rc;
-}
-
+#define UINT32_MAX       (4294967295U)
 
 static int msm_mctl_pp_buf_divert(
 			struct msm_cam_media_controller *pmctl,
@@ -824,8 +814,8 @@ int msm_mctl_pp_reserve_free_frame(
 		sizeof(struct msm_cam_evt_divert_frame)))
 		return -EFAULT;
 
-	image_mode = frame.image_mode;
-	if (image_mode <= 0) {
+	image_mode = div_frame.image_mode;
+	if (image_mode < 0  || image_mode >= MSM_MAX_IMG_MODE) {
 		pr_err("%s Invalid image mode %d", __func__, image_mode);
 		return -EINVAL;
 	}
@@ -865,7 +855,7 @@ int msm_mctl_pp_release_free_frame(
 		return -EFAULT;
 
 	image_mode = div_frame.image_mode;
-	if (image_mode < 0) {
+	if (image_mode < 0 || image_mode >= MSM_MAX_IMG_MODE) {
 		pr_err("%s Invalid image mode %d\n", __func__, image_mode);
 		return -EINVAL;
 	}
@@ -939,11 +929,24 @@ int msm_mctl_pp_done(
 			dirty = 1;
 		}
 	} else {
-		if (frame.num_planes > 1)
+		if (frame.num_planes > 1) {
+			if (frame.mp[0].phy_addr >
+					(UINT32_MAX - frame.mp[0].data_offset)) {
+				pr_err("%s:%d Invalid data offset\n", __func__, __LINE__);
+				return -EINVAL;
+
+			}
 			buf.ch_paddr[0] = frame.mp[0].phy_addr +
 						frame.mp[0].data_offset;
-		else
+		} else {
+				if (frame.sp.phy_addr >
+					(UINT32_MAX - frame.sp.y_off)) {
+					pr_err("%s:%d Invalid Y offset\n", __func__, __LINE__);
+					return -EINVAL;
+
+				}
 			buf.ch_paddr[0] = frame.sp.phy_addr + frame.sp.y_off;
+		}
 	}
 	spin_unlock_irqrestore(&p_mctl->pp_info.lock, flags);
 	
@@ -989,11 +992,24 @@ int msm_mctl_pp_divert_done(
 		goto err;
 	}
 
-	if (frame.num_planes > 1)
+	if (frame.num_planes > 1) {
+			if (frame.mp[0].phy_addr >
+					(UINT32_MAX - frame.mp[0].data_offset)) {
+				pr_err("%s:%d Invalid data offset\n", __func__, __LINE__);
+				return -EINVAL;
+
+			}
 		buf.ch_paddr[0] = frame.mp[0].phy_addr +
 					frame.mp[0].data_offset;
-	else
+	} else {
+			if (frame.sp.phy_addr >
+				(UINT32_MAX - frame.sp.y_off)) {
+				pr_err("%s:%d Invalid Y offset\n", __func__, __LINE__);
+				return -EINVAL;
+
+			}
 		buf.ch_paddr[0] = frame.sp.phy_addr + frame.sp.y_off;
+	}
 
 	spin_unlock_irqrestore(&p_mctl->pp_info.lock, flags);
 	D("%s Frame done id: %d\n", __func__, frame.frame_id);

@@ -51,8 +51,8 @@ else
 endif
 
 # APQ8064
-ifeq ($(CONFIG_MACH_HTC),y)
-   zreladdr-$(CONFIG_ARCH_APQ8064)	:= 0x80608000
+ifeq ($(CONFIG_APQ8064_ADP2_ES2_3GB),y)
+   zreladdr-$(CONFIG_ARCH_APQ8064)	:= 0x40208000
 else
    zreladdr-$(CONFIG_ARCH_APQ8064)	:= 0x80208000
 endif

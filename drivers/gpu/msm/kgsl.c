@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2012,2014 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2014,2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,7 @@
 #include <linux/msm_ion.h>
 #include <linux/io.h>
 #include <mach/socinfo.h>
+#include <mach/board.h>
 #include <linux/mman.h>
 
 #include "kgsl.h"
@@ -3413,9 +3414,8 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	disable_irq(device->pwrctrl.interrupt_num);
 
 	KGSL_DRV_INFO(device,
-		"dev_id %d regs phys 0x%08lx size 0x%08x virt %p\n",
-		device->id, device->reg_phys, device->reg_len,
-		device->reg_virt);
+		"dev_id %d regs phys 0x%08lx size 0x%08x\n",
+		device->id, device->reg_phys, device->reg_len);
 
 	rwlock_init(&device->context_lock);
 
@@ -3604,6 +3604,7 @@ static int __init kgsl_core_init(void)
 {
 	int result = 0;
 	/* alloc major and minor device numbers */
+	place_marker("KGSL_Init - Start");
 	result = alloc_chrdev_region(&kgsl_driver.major, 0, KGSL_DEVICE_MAX,
 				  KGSL_NAME);
 	if (result < 0) {
@@ -3669,7 +3670,7 @@ static int __init kgsl_core_init(void)
 	}
 
 	kgsl_memfree_init();
-
+	place_marker("KGSL_Init - End");
 	return 0;
 
 err:

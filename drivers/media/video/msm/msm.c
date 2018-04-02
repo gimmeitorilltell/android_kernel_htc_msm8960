@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012,2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -35,6 +35,8 @@
 #endif
 
 #define MSM_MAX_CAMERA_SENSORS 5
+#define QAV_SENSOR "avdev"
+#define QVIDEO_NAME "msm_avdevice"
 
 #ifdef CONFIG_MSM_CAMERA_DEBUG
 #define D(fmt, args...) pr_debug("msm: " fmt, ##args)
@@ -722,12 +724,17 @@ static int msm_server_proc_ctrl_cmd(struct msm_cam_v4l2_device *pcam,
 		rc = -ENOMEM;
 		goto end;
 	}
-	tmp_cmd = (struct msm_ctrl_cmd *)ctrl_data;
-	if (copy_from_user((void *)ctrl_data, uptr_cmd,
-					cmd_len)) {
-		pr_err("%s: copy_from_user failed.\n", __func__);
-		rc = -EINVAL;
-		goto end;
+	rc = vb2_dqbuf(&pcam_inst->vid_bufq, pb,  f->f_flags & O_NONBLOCK);
+	if (rc < 0) {
+		if (rc == -EAGAIN)
+			pr_debug(
+				"%s, videobuf_dqbuf queue empty %d, flags 0x%X\n",
+				__func__, rc, f->f_flags);
+		else
+			pr_err("%s, videobuf_dqbuf returns %d, flags 0x%X\n",
+				__func__, rc, f->f_flags);
+		mutex_unlock(&pcam_inst->inst_lock);
+		return rc;
 	}
 	tmp_cmd->value = (void *)(ctrl_data+cmd_len);
 	if (uptr_value && tmp_cmd->length > 0) {
@@ -1225,6 +1232,16 @@ static int msm_camera_v4l2_dqbuf(struct file *f, void *pctx,
 	D("%s, videobuf_dqbuf returns %d\n", __func__, rc);
 	mutex_unlock(&pcam_inst->inst_lock);
 
+/* Stream type-dependent parameter ioctls */
+static int msm_camera_v4l2_g_parm(struct file *f, void *pctx,
+				struct v4l2_streamparm *a)
+{
+	int rc = 0;
+	struct msm_cam_v4l2_dev_inst *pcam_inst;
+	pcam_inst = container_of(f->private_data,
+		struct msm_cam_v4l2_dev_inst, eventHandle);
+	if (a)
+		a->parm.capture.extendedmode = pcam_inst->image_mode & 0x7F;
 	return rc;
 }
 
@@ -1272,15 +1289,26 @@ static int msm_camera_v4l2_streamoff(struct file *f, void *pctx,
 	
 	struct msm_cam_v4l2_device *pcam  = video_drvdata(f);
 	struct msm_cam_v4l2_dev_inst *pcam_inst;
-	pcam_inst = container_of(f->private_data,
+
+	if (!fh || !sub) {
+		pr_err("%s: NULL pointer fh 0x%p sub 0x%p",
+			__func__, fh, sub);
+		return -EINVAL;
+	}
+
+	pcam_inst =
+		(struct msm_cam_v4l2_dev_inst *)container_of(fh,
 		struct msm_cam_v4l2_dev_inst, eventHandle);
 
-	D("%s Inst %pK\n", __func__, pcam_inst);
-	WARN_ON(pctx != f->private_data);
+	if (!pcam_inst) {
+		pr_err("%s: NULL pointer pcam_inst",
+			__func__);
+		return -EINVAL;
+	}
 
-	if ((buf_type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) &&
-		(buf_type != V4L2_BUF_TYPE_VIDEO_CAPTURE)) {
-		pr_err("%s Invalid buffer type ", __func__);
+
+	D("%s:fh = 0x%x, type = 0x%x\n", __func__, (u32)fh, sub->type);
+	if (pcam_inst->my_index != 0)
 		return -EINVAL;
 	}
 
@@ -1304,14 +1332,27 @@ static int msm_camera_v4l2_streamoff(struct file *f, void *pctx,
 static int msm_camera_v4l2_enum_fmt_cap(struct file *f, void *pctx,
 					struct v4l2_fmtdesc *pfmtdesc)
 {
-	
-	struct msm_cam_v4l2_device *pcam  = video_drvdata(f);
-	const struct msm_isp_color_fmt *isp_fmt;
+	int rc = 0;
+	struct msm_cam_v4l2_dev_inst *pcam_inst;
 
-	D("%s\n", __func__);
-	WARN_ON(pctx != f->private_data);
-	if ((pfmtdesc->type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) &&
-		(pfmtdesc->type != V4L2_BUF_TYPE_VIDEO_CAPTURE))
+	if (!fh || !sub) {
+		pr_err("%s: NULL pointer fh 0x%p sub 0x%p",
+			__func__, fh, sub);
+		return -EINVAL;
+	}
+
+	pcam_inst =
+		(struct msm_cam_v4l2_dev_inst *)container_of(fh,
+		struct msm_cam_v4l2_dev_inst, eventHandle);
+
+	if (!pcam_inst) {
+		pr_err("%s: NULL pointer pcam_inst",
+			__func__);
+		return -EINVAL;
+	}
+
+	D("%s: fh = 0x%x\n", __func__, (u32)fh);
+	if (pcam_inst->my_index != 0)
 		return -EINVAL;
 
 	if (pfmtdesc->index >= pcam->num_fmts)
@@ -2638,8 +2679,9 @@ static long msm_ioctl_server(struct file *file, void *fh,
 		break;
 
 	default:
-	
-		pr_err("%s: Invalid IOCTL = %d", __func__, cmd);
+		pr_err("%s Unsupported ioctl cmd %d (%d)",
+			__func__, cmd,
+			cmd - MSM_CAM_V4L2_IOCTL_GET_CAMERA_INFO + 1);
 		break;
 	}
 	return rc;
@@ -3756,6 +3798,7 @@ static int msm_setup_server_dev(struct platform_device *pdev)
 static int msm_cam_dev_init(struct msm_cam_v4l2_device *pcam)
 {
 	int rc = -ENOMEM;
+	int check_avdev = -1;
 	struct video_device *pvdev = NULL;
 	struct i2c_client *client = v4l2_get_subdevdata(pcam->sensor_sdev);
 	D("%s\n", __func__);
@@ -3776,10 +3819,23 @@ static int msm_cam_dev_init(struct msm_cam_v4l2_device *pcam)
 		return rc;
 	}
 
-#if defined(CONFIG_MEDIA_CONTROLLER)
-	strlcpy(pcam->media_dev.model, QCAMERA_NAME,
-			sizeof(pcam->media_dev.model));
-	pcam->media_dev.dev = &client->dev;
+	/* check if sensor has avdev prefix */
+	if (strlen(QAV_SENSOR) <= strlen(pcam->sensor_sdev->name)) {
+		check_avdev = memcmp(QAV_SENSOR, pcam->sensor_sdev->name,
+		strlen(QAV_SENSOR));
+	}
+
+	if (check_avdev == 0) {
+		/* This is an av device that should not be accessed by
+		   camera HAL.*/
+		D("avdev sensor name = %s", pcam->sensor_sdev->name);
+		strlcpy(pcam->media_dev.model, QVIDEO_NAME,
+				sizeof(pcam->media_dev.model));
+	} else {
+		strlcpy(pcam->media_dev.model, QCAMERA_NAME,
+				sizeof(pcam->media_dev.model));
+	}
+
 	rc = media_device_register(&pcam->media_dev);
 	pvdev->v4l2_dev = &pcam->v4l2_dev;
 	pcam->v4l2_dev.mdev = &pcam->media_dev;

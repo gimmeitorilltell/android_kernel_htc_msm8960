@@ -181,7 +181,6 @@ EXPORT_SYMBOL_GPL(ehci_cf_port_reset_rwsem);
 #define HUB_DEBOUNCE_STEP	  25
 #define HUB_DEBOUNCE_STABLE	 100
 
-
 static void hub_release(struct kref *kref);
 static int usb_reset_and_verify_device(struct usb_device *udev);
 
@@ -1039,7 +1038,7 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 			PREPARE_DELAYED_WORK(&hub->init_work, hub_init_func3);
 			schedule_delayed_work(&hub->init_work,
 					msecs_to_jiffies(delay));
-			device_unlock(hub->intfdev);
+                        device_unlock(hub->intfdev);
 			return;		/* Continues at init3: below */
 		} else {
 			msleep(delay);
@@ -3185,6 +3184,7 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 	enum usb_device_speed	oldspeed = udev->speed;
 	const char		*speed;
 	int			devnum = udev->devnum;
+	char			*error_event[] = { "USB_DEVICE_ERROR=Device_No_Response", NULL };
 
 	/* root hub ports have a slightly longer reset period
 	 * (from USB 2.0 spec, section 7.1.7.5)
@@ -3348,6 +3348,8 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 				dev_err(&udev->dev,
 					"device descriptor read/64, error %d\n",
 					r);
+				kobject_uevent_env(&udev->parent->dev.kobj,
+						KOBJ_CHANGE, error_event);
 				retval = -EMSGSIZE;
 				continue;
 			}
@@ -3396,6 +3398,8 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 			dev_err(&udev->dev,
 					"device descriptor read/8, error %d\n",
 					retval);
+			kobject_uevent_env(&udev->parent->dev.kobj,
+						KOBJ_CHANGE, error_event);
 			if (retval >= 0)
 				retval = -EMSGSIZE;
 		} else {

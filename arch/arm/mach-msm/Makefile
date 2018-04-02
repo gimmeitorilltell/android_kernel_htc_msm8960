@@ -280,6 +280,9 @@ obj-$(CONFIG_MACH_MSM8930_FLUID) += board-8930-all.o board-8930-regulator-pm8038
 obj-$(CONFIG_MACH_MSM8930_EVT) += board-8930-all.o board-8930-regulator-pm8038.o board-8930-regulator-pm8917.o
 obj-$(CONFIG_PM8921_BMS) += bms-batterydata.o bms-batterydata-desay.o batterydata-lib.o
 obj-$(CONFIG_MACH_APQ8064_CDP) += board-8064-all.o board-8064-regulator.o
+obj-$(CONFIG_MACH_APQ8064_ADP2) += board-8064-all.o board-8064-regulator.o
+obj-$(CONFIG_MACH_APQ8064_ADP2_ES2) += board-8064-all.o board-8064-regulator.o
+obj-$(CONFIG_MACH_APQ8064_ADP2_ES2P5) += board-8064-all.o board-8064-regulator.o
 obj-$(CONFIG_MACH_APQ8064_MTP) += board-8064-all.o board-8064-regulator.o
 obj-$(CONFIG_MACH_APQ8064_LIQUID) += board-8064-all.o board-8064-regulator.o
 obj-$(CONFIG_MACH_MPQ8064_HRD) += board-8064-all.o board-8064-regulator.o
@@ -305,6 +308,7 @@ obj-$(CONFIG_MACH_HTC) += htc/
 
 CFLAGS_msm_vibrator.o += -Idrivers/staging/android
 CFLAGS_board-9615.o += -Idrivers/usb/gadget
+CFLAGS_board-8064.o += -Idrivers/usb/gadget
 
 obj-$(CONFIG_ARCH_FSM9XXX) += board-fsm9xxx.o
 
@@ -331,7 +335,6 @@ obj-$(CONFIG_MSM_RPM_LOG) += rpm_log.o
 obj-$(CONFIG_MSM_TZ_LOG) += tz_log.o
 obj-$(CONFIG_MSM_XO) += msm_xo.o
 obj-$(CONFIG_MSM_BUS_SCALING) += msm_bus/
-obj-$(CONFIG_MSM_BUSPM_DEV) += msm-buspm-dev.o
 
 obj-$(CONFIG_MSM_IOMMU)		+= devices-iommu.o iommu_domains.o
 obj-$(CONFIG_MSM_EVENT_TIMER)		+= event_timer.o
@@ -393,7 +396,4 @@ endif
 obj-$(CONFIG_MSM_CPU_PWRCTL) +=  msm_cpu_pwrctl.o
 
 obj-$(CONFIG_ARCH_RANDOM) += early_random.o
-
-obj-$(CONFIG_CPU_FREQ_MSM) += cpufreq.o
-
-obj-$(CONFIG_HAS_MACH_MEMUTILS) += memutils/
+obj-$(CONFIG_MSM_BOOT_TIME_MARKER) += boot_marker.o

@@ -29,10 +29,7 @@ obj-$(CONFIG_MT9M114) += mt9m114_v4l2.o
 obj-$(CONFIG_S5K4E1) += s5k4e1_v4l2.o
 obj-$(CONFIG_MT9E013) += mt9e013_v4l2.o
 obj-$(CONFIG_WEBCAM_OV9726) += ov9726_v4l2.o
-obj-$(CONFIG_WEBCAM_OV7692_QRD) += ov7692_qrd_v4l2.o
-obj-$(CONFIG_OV2722) += ov2722_v4l2.o
-obj-$(CONFIG_OV5693) += ov5693_v4l2.o
-obj-$(CONFIG_S5K6A2YA) += s5k6a2ya_v4l2.o
-obj-$(CONFIG_MT9V113) += mt9v113_v4l2.o mt9v113_reg_lens_9251.o
-obj-$(CONFIG_S5K6AAFX) += s5k6aafx_v4l2.o s5k6aafx_reg_valentewx.o
-
+obj-$(CONFIG_OV7692) += ov7692_v4l2.o
+obj-$(CONFIG_VX6953) += vx6953.o
+obj-$(CONFIG_OV9724) += ov9724_v4l2.o
+obj-$(CONFIG_AVDEVICE) += avdevice.o

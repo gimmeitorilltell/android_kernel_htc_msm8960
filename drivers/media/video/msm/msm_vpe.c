@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2012, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -149,14 +149,22 @@ static int msm_vpe_cfg_update(void *pinfo)
 	return rc;
 }
 
-void vpe_update_scale_coef(uint32_t *p)
+int vpe_update_scale_coef(uint32_t *p)
 {
 	uint32_t i, offset;
 	offset = *p;
+
+	if (offset > VPE_SCALE_COEFF_MAX_N-VPE_SCALE_COEFF_NUM) {
+		pr_err("%s: invalid offset %d passed in", __func__, offset);
+		return -EINVAL;
+	}
+
 	for (i = offset; i < (VPE_SCALE_COEFF_NUM + offset); i++) {
 		msm_io_w(*(++p), vpe_ctrl->vpebase + VPE_SCALE_COEFF_LSBn(i));
 		msm_io_w(*(++p), vpe_ctrl->vpebase + VPE_SCALE_COEFF_MSBn(i));
 	}
+
+	return 0;
 }
 
 void vpe_input_plane_config(uint32_t *p)
@@ -403,10 +411,14 @@ static void vpe_send_outmsg(void)
 		spin_unlock_irqrestore(&vpe_ctrl->lock, flags);
 		return;
 	}
-	rp.type = vpe_ctrl->pp_frame_info->pp_frame_cmd.path;
-	rp.extdata = (void *)vpe_ctrl->pp_frame_info;
-	rp.extlen = sizeof(*vpe_ctrl->pp_frame_info);
-	vpe_ctrl->state = VPE_STATE_INIT;   
+	event_qcmd = kzalloc(sizeof(struct msm_queue_cmd), GFP_ATOMIC);
+	if (!event_qcmd) {
+		pr_err("%s No memory for event q cmd", __func__);
+		spin_unlock_irqrestore(&vpe_ctrl->lock, flags);
+		return;
+	}
+	atomic_set(&event_qcmd->on_heap, 1);
+	event_qcmd->command = (void *)vpe_ctrl->pp_frame_info;
 	vpe_ctrl->pp_frame_info = NULL;
 	vpe_ctrl->vpe_event_done = 1;
 	wake_up(&vpe_ctrl->vpe_event_queue);
@@ -648,14 +660,37 @@ static long msm_vpe_subdev_ioctl(struct v4l2_subdev *sd,
 		case VPE_CMD_OPERATION_MODE_CFG:
 			rc = vpe_operation_config(cmd->value);
 			break;
-		case VPE_CMD_INPUT_PLANE_CFG:
-			vpe_input_plane_config(cmd->value);
+		}
+
+		vpe_cmd->value = (void *)&output_cfg;
+		vpe_output_plane_config(vpe_cmd->value);
+		break;
+		}
+
+	case VPE_CMD_SCALE_CFG_TYPE: {
+		struct msm_vpe_scaler_cfg scaler_cfg;
+		if (sizeof(struct msm_vpe_scaler_cfg) != vpe_cmd->length) {
+			pr_err("%s: size mismatch cmd=%d, len=%d, expected=%d",
+				__func__, vpe_cmd->cmd_type, vpe_cmd->length,
+				sizeof(struct msm_vpe_scaler_cfg));
+			rc = -EINVAL;
 			break;
 		case VPE_CMD_OUTPUT_PLANE_CFG:
 			vpe_output_plane_config(cmd->value);
 			break;
-		case VPE_CMD_SCALE_CFG_TYPE:
-			vpe_update_scale_coef(cmd->value);
+		}
+
+		rc = vpe_update_scale_coef((uint32_t *)scaler_cfg.scaler_cfg);
+		break;
+		}
+
+	case VPE_CMD_ZOOM: {
+		struct msm_mctl_pp_frame_info *zoom;
+		zoom = kmalloc(sizeof(struct msm_mctl_pp_frame_info),
+				GFP_ATOMIC);
+		if (!zoom) {
+			pr_err("%s Not enough memory ", __func__);
+			rc = -ENOMEM;
 			break;
 		case VPE_CMD_ZOOM: {
 			rc = msm_vpe_do_pp(cmd,
@@ -670,8 +705,35 @@ static long msm_vpe_subdev_ioctl(struct v4l2_subdev *sd,
 				vpe_enable(VPE_NORMAL_MODE_CLOCK_RATE);
 			break;
 		}
-		case VPE_CMD_DISABLE:
-			rc = vpe_disable();
+
+		if ((zoom->pp_frame_cmd.src_frame.num_planes >
+			VIDEO_MAX_PLANES) ||
+			(zoom->pp_frame_cmd.dest_frame.num_planes >
+			VIDEO_MAX_PLANES)) {
+			pr_err("%s: num_planes out of range src %d dest %d",
+				__func__,
+				zoom->pp_frame_cmd.src_frame.num_planes,
+				zoom->pp_frame_cmd.dest_frame.num_planes);
+			kfree(zoom);
+			rc = -EINVAL;
+			break;
+		}
+
+		zoom->user_cmd = vpe_cmd->cmd_type;
+		zoom->p_mctl = v4l2_get_subdev_hostdata(&vpe_ctrl->subdev);
+		D("%s: cookie=0x%x,action=0x%x,path=0x%x",
+			__func__, zoom->pp_frame_cmd.cookie,
+			zoom->pp_frame_cmd.vpe_output_action,
+			zoom->pp_frame_cmd.path);
+
+		D("%s Mapping Source frame ", __func__);
+		zoom->src_frame.frame = zoom->pp_frame_cmd.src_frame;
+		rc = msm_mctl_map_user_frame(&zoom->src_frame,
+			zoom->p_mctl->client, mctl->domain_num);
+		if (rc < 0) {
+			pr_err("%s Error mapping source buffer rc = %d",
+				__func__, rc);
+			kfree(zoom);
 			break;
 		case VPE_CMD_INPUT_PLANE_UPDATE:
 		case VPE_CMD_FLUSH:

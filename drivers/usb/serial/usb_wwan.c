@@ -801,13 +801,12 @@ int usb_wwan_suspend(struct usb_serial *serial, pm_message_t message)
 
 	spin_lock_irq(&intfdata->susp_lock);
 	if (PMSG_IS_AUTO(message)) {
-		if (intfdata->in_flight ||
-				pm_runtime_autosuspend_expiration(&serial->dev->dev)) {
+		if (intfdata->in_flight || 
+                    pm_runtime_autosuspend_expiration(&serial->dev->dev)) {
 			spin_unlock_irq(&intfdata->susp_lock);
 			return -EBUSY;
 		}
 	}
-
 	intfdata->suspended = 1;
 	spin_unlock_irq(&intfdata->susp_lock);
 
@@ -858,6 +857,8 @@ int usb_wwan_resume(struct usb_serial *serial)
 	dbg("%s entered", __func__);
 
 	spin_lock_irq(&intfdata->susp_lock);
+	intfdata->suspended = 0;
+
 	for (i = 0; i < serial->num_ports; i++) {
 		/* walk all ports */
 		port = serial->port[i];
@@ -886,8 +887,10 @@ int usb_wwan_resume(struct usb_serial *serial)
 			urb = portdata->in_urbs[j];
 			err = usb_submit_urb(urb, GFP_ATOMIC);
 			if (err < 0) {
-				err("%s: Error %d for bulk URB %d",
-				    __func__, err, i);
+				err("%s: Error %d for bulk URB[%d]: %p %d\n",
+					__func__, err, j, urb, i);
+				usb_unanchor_urb(urb);
+				intfdata->suspended = 1;
 				err_count++;
 			}
 		}

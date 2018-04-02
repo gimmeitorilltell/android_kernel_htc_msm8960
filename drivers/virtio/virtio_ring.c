@@ -492,7 +492,7 @@ static void vring_disable_cb(struct virtqueue *_vq)
  * Caller must ensure we don't call this with other virtqueue
  * operations at the same time (except where noted).
  */
-static bool vring_enable_cb(struct virtqueue *_vq)
+unsigned virtqueue_enable_cb_prepare(struct virtqueue *_vq)
 {
 	struct vring_virtqueue *vq = to_vvq(_vq);
 

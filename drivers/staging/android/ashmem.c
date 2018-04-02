@@ -686,10 +686,12 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case ASHMEM_SET_SIZE:
 		ret = -EINVAL;
+                mutex_lock(&ashmem_mutex);
 		if (!asma->file) {
 			ret = 0;
 			asma->size = (size_t) arg;
 		}
+                mutex_unlock(&ashmem_mutex);
 		break;
 	case ASHMEM_GET_SIZE:
 		ret = asma->size;
@@ -741,7 +743,7 @@ static struct miscdevice ashmem_misc = {
 
 static int is_ashmem_file(struct file *file)
 {
-	return (file->f_op == &ashmem_fops);
+	return file->f_op == &ashmem_fops;
 }
 
 int get_ashmem_file(int fd, struct file **filp, struct file **vm_file,

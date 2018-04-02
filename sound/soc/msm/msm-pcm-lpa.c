@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -238,7 +238,19 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 	int ret;
-	short bit_width = 16;
+	uint16_t bits_per_sample = 16;
+	struct asm_softpause_params softpause = {
+		.enable = SOFT_PAUSE_ENABLE,
+		.period = SOFT_PAUSE_PERIOD,
+		.step = SOFT_PAUSE_STEP,
+		.rampingcurve = SOFT_PAUSE_CURVE_LINEAR,
+	};
+	struct asm_softvolume_params softvol = {
+		.period = SOFT_VOLUME_PERIOD,
+		.step = SOFT_VOLUME_STEP,
+		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
+	};
+	struct snd_soc_pcm_runtime *soc_prtd = substream->private_data;
 
 	pr_debug("%s\n", __func__);
 	prtd->pcm_size = snd_pcm_lib_buffer_bytes(substream);
@@ -252,11 +264,43 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 		return 0;
 
 	if (runtime->format == SNDRV_PCM_FORMAT_S24_LE)
-		bit_width = 24;
+		bits_per_sample = 24;
+	ret = q6asm_open_write_v2(prtd->audio_client,
+				  FORMAT_LINEAR_PCM,
+				  bits_per_sample);
+	if (ret < 0) {
+		pr_err("%s: pcm out open failed\n", __func__);
+		q6asm_audio_client_free(prtd->audio_client);
+		kfree(prtd);
+		return -ENOMEM;
+	}
+	ret = q6asm_set_io_mode(prtd->audio_client, ASYNC_IO_MODE);
+	if (ret < 0) {
+		pr_err("%s: Set IO mode failed\n", __func__);
+		q6asm_audio_client_free(prtd->audio_client);
+		kfree(prtd);
+		return -ENOMEM;
+	}
 
-	ret = q6asm_media_format_block_pcm_format_support(
-				prtd->audio_client, runtime->rate,
-				runtime->channels, bit_width);
+	pr_debug("%s: session ID %d\n", __func__, prtd->audio_client->session);
+	prtd->session_id = prtd->audio_client->session;
+	msm_pcm_routing_reg_phy_stream(soc_prtd->dai_link->be_id,
+		prtd->audio_client->perf_mode,
+		prtd->session_id, substream->stream);
+
+	lpa_set_volume(0);
+	ret = q6asm_set_softpause(lpa_audio.prtd->audio_client, &softpause);
+	if (ret < 0)
+		pr_err("%s: Send SoftPause Param failed ret=%d\n",
+			__func__, ret);
+	ret = q6asm_set_softvolume(lpa_audio.prtd->audio_client, &softvol);
+	if (ret < 0)
+		pr_err("%s: Send SoftVolume Param failed ret=%d\n",
+			__func__, ret);
+
+	ret = q6asm_media_format_block_multi_ch_pcm_v2(prtd->audio_client,
+			runtime->rate, runtime->channels, bits_per_sample);
+
 	if (ret < 0)
 		pr_debug("%s: CMD Format block failed\n", __func__);
 
@@ -366,19 +410,8 @@ static int msm_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 static int msm_pcm_open(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_soc_pcm_runtime *soc_prtd = substream->private_data;
+
 	struct msm_audio *prtd;
-	struct asm_softpause_params softpause = {
-		.enable = SOFT_PAUSE_ENABLE,
-		.period = SOFT_PAUSE_PERIOD,
-		.step = SOFT_PAUSE_STEP,
-		.rampingcurve = SOFT_PAUSE_CURVE_LINEAR,
-	};
-	struct asm_softvolume_params softvol = {
-		.period = SOFT_VOLUME_PERIOD,
-		.step = SOFT_VOLUME_STEP,
-		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
-	};
 	int ret = 0;
 
 	pr_debug("%s\n", __func__);
@@ -399,30 +432,10 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	}
 	prtd->audio_client->perf_mode = false;
 	prtd->meta_data_mode = false;
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		ret = q6asm_open_write(prtd->audio_client, FORMAT_LINEAR_PCM);
-		if (ret < 0) {
-			pr_err("%s: pcm out open failed\n", __func__);
-			q6asm_audio_client_free(prtd->audio_client);
-			kfree(prtd);
-			return -ENOMEM;
-		}
-		ret = q6asm_set_io_mode(prtd->audio_client, ASYNC_IO_MODE);
-		if (ret < 0) {
-			pr_err("%s: Set IO mode failed\n", __func__);
-			q6asm_audio_client_free(prtd->audio_client);
-			kfree(prtd);
-			return -ENOMEM;
-		}
-	}
+
 	/* Capture path */
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
 		return -EPERM;
-	pr_debug("%s: session ID %d\n", __func__, prtd->audio_client->session);
-	prtd->session_id = prtd->audio_client->session;
-	msm_pcm_routing_reg_phy_stream(soc_prtd->dai_link->be_id,
-		prtd->audio_client->perf_mode,
-		prtd->session_id, substream->stream);
 
 	ret = snd_pcm_hw_constraint_list(runtime, 0,
 				SNDRV_PCM_HW_PARAM_RATE,
@@ -440,16 +453,6 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	atomic_set(&prtd->stop, 1);
 	runtime->private_data = prtd;
 	lpa_audio.prtd = prtd;
-	lpa_set_volume(0);
-	ret = q6asm_set_softpause(lpa_audio.prtd->audio_client, &softpause);
-	if (ret < 0)
-		pr_err("%s: Send SoftPause Param failed ret=%d\n",
-			__func__, ret);
-	ret = q6asm_set_softvolume(lpa_audio.prtd->audio_client, &softvol);
-	if (ret < 0)
-		pr_err("%s: Send SoftVolume Param failed ret=%d\n",
-			__func__, ret);
-
 	return 0;
 }
 

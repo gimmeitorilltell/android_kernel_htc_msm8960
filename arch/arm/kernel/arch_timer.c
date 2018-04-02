@@ -43,6 +43,8 @@ static void __iomem *timer_base;
 
 static struct delay_timer arch_delay_timer;
 
+static struct delay_timer arch_delay_timer;
+
 /*
  * Architected system timer support.
  */
@@ -423,8 +425,16 @@ static int __init arch_timer_common_register(void)
 	if (!arch_timer_evt)
 		return -ENOMEM;
 
-	err = request_percpu_irq(arch_timer_ppi, arch_timer_handler_cp15,
-			 "arch_timer", arch_timer_evt);
+	clocksource_register_hz(&clocksource_counter, arch_timer_rate);
+
+	setup_sched_clock(arch_timer_update_sched_clock, 32, arch_timer_rate);
+
+	if (is_irq_percpu)
+		err = request_percpu_irq(arch_timer_ppi, arch_timer_handler,
+				 "arch_timer", arch_timer_evt);
+	else
+		err = request_irq(arch_timer_ppi, arch_timer_handler, 0,
+			"arch_timer", arch_timer_evt);
 	if (err) {
 		pr_err("arch_timer: can't register interrupt %d (%d)\n",
 		       arch_timer_ppi, err);
@@ -458,6 +468,10 @@ static int __init arch_timer_common_register(void)
 	if (err)
 		goto out_free_irq;
 
+	/* Use the architected timer for the delay loop. */
+	arch_delay_timer.read_current_timer = &arch_timer_read_current_timer;
+	arch_delay_timer.freq = arch_timer_rate;
+	register_current_timer_delay(&arch_delay_timer);
 	return 0;
 
 out_free_irq:

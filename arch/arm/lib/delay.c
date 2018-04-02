@@ -1,7 +1,7 @@
 /*
  * Delay loops based on the OpenRISC implementation.
  *
- * Copyright (C) 2012 ARM Limited
+ *  Copyright (C) 2012 ARM Limited
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -18,7 +18,6 @@
  *
  * Author: Will Deacon <will.deacon@arm.com>
  */
-
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -29,9 +28,9 @@
  * Default to the loop-based delay implementation.
  */
 struct arm_delay_ops arm_delay_ops = {
-	.delay		= __loop_delay,
-	.const_udelay	= __loop_const_udelay,
-	.udelay		= __loop_udelay,
+	.delay          = __loop_delay,
+	.const_udelay   = __loop_const_udelay,
+	.udelay         = __loop_udelay,
 };
 
 static const struct delay_timer *delay_timer;
@@ -59,7 +58,7 @@ static void __timer_const_udelay(unsigned long xloops)
 {
 	unsigned long long loops = xloops;
 	loops *= loops_per_jiffy;
-	__timer_delay(loops >> UDELAY_SHIFT);
+	 __timer_delay(loops >> UDELAY_SHIFT);
 }
 
 static void __timer_udelay(unsigned long usecs)
@@ -71,18 +70,17 @@ void __init register_current_timer_delay(const struct delay_timer *timer)
 {
 	if (!delay_calibrated) {
 		pr_info("Switching to timer-based delay loop\n");
-		delay_timer			= timer;
-		lpj_fine			= timer->freq / HZ;
-		loops_per_jiffy			= lpj_fine;
-		arm_delay_ops.delay		= __timer_delay;
-		arm_delay_ops.const_udelay	= __timer_const_udelay;
-		arm_delay_ops.udelay		= __timer_udelay;
-		delay_calibrated		= true;
+		delay_timer                     = timer;
+		lpj_fine                        = timer->freq / HZ;
+		loops_per_jiffy                 = lpj_fine;
+		arm_delay_ops.delay             = __timer_delay;
+		arm_delay_ops.const_udelay      = __timer_const_udelay;
+		arm_delay_ops.udelay            = __timer_udelay;
+		delay_calibrated                = true;
 	} else {
 		pr_info("Ignoring duplicate/late registration of read_current_timer delay\n");
 	}
 }
-
 unsigned long __cpuinit calibrate_delay_is_known(void)
 {
 	delay_calibrated = true;

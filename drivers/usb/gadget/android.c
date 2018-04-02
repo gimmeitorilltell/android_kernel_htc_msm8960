@@ -68,7 +68,6 @@
 #include "f_adb.c"
 #include "f_ccid.c"
 #include "f_mtp.c"
-#include "f_accessory.c"
 #ifdef CONFIG_USB_ANDROID_CDC_ECM
 #include "f_ecm.c"
 #else
@@ -85,6 +84,7 @@
 #ifdef CONFIG_TARGET_CORE
 #include "f_tcm.c"
 #endif
+#include "f_ncm.c"
 
 MODULE_AUTHOR("Mike Lockwood");
 MODULE_DESCRIPTION("Android Composite USB Driver");
@@ -621,6 +621,104 @@ static struct android_usb_function rmnet_function = {
 	.cleanup	= rmnet_function_cleanup,
 	.bind_config	= rmnet_function_bind_config,
 	.attributes	= rmnet_function_attributes,
+};
+
+/* ncm */
+struct ncm_function_config {
+	u8      ethaddr[ETH_ALEN];
+};
+static int
+ncm_function_init(struct android_usb_function *f, struct usb_composite_dev *c)
+{
+	f->config = kzalloc(sizeof(struct ncm_function_config), GFP_KERNEL);
+	if (!f->config)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void ncm_function_cleanup(struct android_usb_function *f)
+{
+	kfree(f->config);
+	f->config = NULL;
+}
+
+static int
+ncm_function_bind_config(struct android_usb_function *f,
+				struct usb_configuration *c)
+{
+	struct ncm_function_config *ncm = f->config;
+	int ret;
+
+	if (!ncm) {
+		pr_err("%s: ncm config is null\n", __func__);
+		return -EINVAL;
+	}
+
+	pr_info("%s MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", __func__,
+		ncm->ethaddr[0], ncm->ethaddr[1], ncm->ethaddr[2],
+		ncm->ethaddr[3], ncm->ethaddr[4], ncm->ethaddr[5]);
+
+	ret = gether_setup_name(c->cdev->gadget, ncm->ethaddr, "ncm");
+	if (ret) {
+		pr_err("%s: gether setup failed err:%d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = ncm_bind_config(c, ncm->ethaddr);
+	if (ret) {
+		pr_err("%s: ncm bind config failed err:%d", __func__, ret);
+		gether_cleanup();
+		return ret;
+	}
+
+	return ret;
+}
+
+static void ncm_function_unbind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	gether_cleanup();
+}
+
+static ssize_t ncm_ethaddr_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct ncm_function_config *ncm = f->config;
+	return snprintf(buf, PAGE_SIZE, "%02x:%02x:%02x:%02x:%02x:%02x\n",
+		ncm->ethaddr[0], ncm->ethaddr[1], ncm->ethaddr[2],
+		ncm->ethaddr[3], ncm->ethaddr[4], ncm->ethaddr[5]);
+}
+
+static ssize_t ncm_ethaddr_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct ncm_function_config *ncm = f->config;
+
+	if (sscanf(buf, "%02x:%02x:%02x:%02x:%02x:%02x\n",
+		(int *)&ncm->ethaddr[0], (int *)&ncm->ethaddr[1],
+		(int *)&ncm->ethaddr[2], (int *)&ncm->ethaddr[3],
+		(int *)&ncm->ethaddr[4], (int *)&ncm->ethaddr[5]) == 6)
+		return size;
+	return -EINVAL;
+}
+
+static DEVICE_ATTR(ncm_ethaddr, S_IRUGO | S_IWUSR, ncm_ethaddr_show,
+						ncm_ethaddr_store);
+static struct device_attribute *ncm_function_attributes[] = {
+	&dev_attr_ncm_ethaddr,
+	NULL
+};
+
+static struct android_usb_function ncm_function = {
+	.name		= "ncm",
+	.init		= ncm_function_init,
+	.cleanup	= ncm_function_cleanup,
+	.bind_config	= ncm_function_bind_config,
+	.unbind_config	= ncm_function_unbind_config,
+	.attributes	= ncm_function_attributes,
 };
 
 struct ecm_function_config {
@@ -1672,39 +1770,6 @@ static struct android_usb_function mass_storage_function = {
 	.attributes	= mass_storage_function_attributes,
 };
 
-
-static int accessory_function_init(struct android_usb_function *f,
-					struct usb_composite_dev *cdev)
-{
-	return acc_setup();
-}
-
-static void accessory_function_cleanup(struct android_usb_function *f)
-{
-	acc_cleanup();
-}
-
-static int accessory_function_bind_config(struct android_usb_function *f,
-						struct usb_configuration *c)
-{
-	return acc_bind_config(c);
-}
-
-static int accessory_function_ctrlrequest(struct android_usb_function *f,
-						struct usb_composite_dev *cdev,
-						const struct usb_ctrlrequest *c)
-{
-	return acc_ctrlrequest(cdev, c);
-}
-
-static struct android_usb_function accessory_function = {
-	.name		= "accessory",
-	.init		= accessory_function_init,
-	.cleanup	= accessory_function_cleanup,
-	.bind_config	= accessory_function_bind_config,
-	.ctrlrequest	= accessory_function_ctrlrequest,
-};
-
 static int audio_source_function_init(struct android_usb_function *f,
 			struct usb_composite_dev *cdev)
 {
@@ -1834,8 +1899,8 @@ static struct android_usb_function *supported_functions[] = {
 	&rndis_function,
 #endif
 	&rndis_qc_function,
+	&ncm_function,
 	&mass_storage_function,
-	&accessory_function,
 	&audio_source_function,
 	&uasp_function,
 	NULL
@@ -2443,9 +2508,6 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 	 * It needs to handle control requests before it is enabled.
 	 */
 	if (value < 0)
-		value = acc_ctrlrequest(cdev, c);
-
-	if (value < 0)
 		value = composite_setup(gadget, c);
 
 	spin_lock_irqsave(&cdev->lock, flags);
@@ -2472,7 +2534,6 @@ static void android_disconnect(struct usb_gadget *gadget)
 	   accessory function is not actually enabled,
 	   so we need to inform it when we are disconnected.
 	 */
-	acc_disconnect();
 
 	spin_lock_irqsave(&cdev->lock, flags);
 	dev->connected = 0;
@@ -2493,8 +2554,9 @@ static int android_create_device(struct android_dev *dev, u8 usb_core_id)
 	 */
 	snprintf(device_node_name, ANDROID_DEVICE_NODE_NAME_LENGTH,
 		 "android%d", usb_core_id);
+	pr_debug("%s(): creating android%d device\n", __func__, usb_core_id);
 	dev->dev = device_create(android_class, NULL,
-					MKDEV(0, 0), NULL, device_node_name);
+				MKDEV(0, usb_core_id), NULL, device_node_name);
 	if (IS_ERR(dev->dev))
 		return PTR_ERR(dev->dev);
 
@@ -2599,11 +2661,13 @@ static int __devinit android_probe(struct platform_device *pdev)
 	android_dev_count++;
 
 	if (pdata)
-		composite_driver.usb_core_id = pdata->usb_core_id;
+		composite_driver_template.usb_core_id = pdata->usb_core_id;
 	else
-		composite_driver.usb_core_id = 0; /*To backward compatibility*/
+		/*To backward compatibility*/
+		composite_driver_template.usb_core_id = 0;
 
-	ret = android_create_device(android_dev, composite_driver.usb_core_id);
+	ret = android_create_device(android_dev,
+				composite_driver_template.usb_core_id);
 	if (ret) {
 		pr_err("%s(): android_create_device failed\n", __func__);
 		goto err_dev;
@@ -2693,8 +2757,8 @@ static int __init init(void)
 	int ret;
 
 	/* Override composite driver functions */
-	composite_driver.setup = android_setup;
-	composite_driver.disconnect = android_disconnect;
+	composite_driver_template.setup = android_setup;
+	composite_driver_template.disconnect = android_disconnect;
 
 	INIT_LIST_HEAD(&android_dev_list);
 	android_dev_count = 0;

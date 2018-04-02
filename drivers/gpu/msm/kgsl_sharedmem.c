@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2012,2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2012,2014,2016,2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -340,6 +340,8 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 			get_page(page);
 			vmf->page = page;
 
+			memdesc->mapsize += PAGE_SIZE;
+
 			return 0;
 		}
 
@@ -445,6 +447,8 @@ static int kgsl_contiguous_vmfault(struct kgsl_memdesc *memdesc,
 	else if (ret == -EFAULT)
 		return VM_FAULT_SIGBUS;
 
+	memdesc->mapsize += PAGE_SIZE;
+
 	return VM_FAULT_NOPAGE;
 }
 
@@ -463,7 +467,7 @@ static int kgsl_ebimem_map_kernel(struct kgsl_memdesc *memdesc)
 	if (!memdesc->hostptr) {
 		memdesc->hostptr = ioremap(memdesc->physaddr, memdesc->size);
 		if (!memdesc->hostptr) {
-			KGSL_CORE_ERR("ioremap failed, addr:0x%p, size:0x%x\n",
+			KGSL_CORE_ERR("ioremap failed, addr:0x%pK, size:0x%x\n",
 				memdesc->hostptr, memdesc->size);
 			return -ENOMEM;
 		}

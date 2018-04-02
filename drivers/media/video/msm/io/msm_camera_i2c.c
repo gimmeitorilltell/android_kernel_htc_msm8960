@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011,2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,42 +11,9 @@
  */
 
 #include "msm_camera_i2c.h"
-
-#if defined(CONFIG_MACH_MONARUDO) || defined(CONFIG_MACH_DELUXE_J) || defined(CONFIG_MACH_DELUXE_R) || defined(CONFIG_MACH_IMPRESSION_J)\
-			|| defined(CONFIG_MACH_DELUXE_U) || defined(CONFIG_MACH_DELUXE_UL) || defined(CONFIG_MACH_DELUXE_UB1)\
-			|| defined(CONFIG_MACH_T6_TL) || defined(CONFIG_MACH_T6_DUG) || defined(CONFIG_MACH_T6_DWG)\
-			|| defined(CONFIG_MACH_T6_UL) || defined(CONFIG_MACH_T6_ULA) || defined(CONFIG_MACH_T6_WL)\
-			|| defined(CONFIG_MACH_T6_WHL) || defined(CONFIG_MACH_DUMMY) || defined(CONFIG_MACH_T6_U)
-
-
-#if defined(CONFIG_MACH_T6_TL) || defined(CONFIG_MACH_T6_DUG) || defined(CONFIG_MACH_T6_DWG)\
-|| defined(CONFIG_MACH_T6_UL) || defined(CONFIG_MACH_T6_ULA) || defined(CONFIG_MACH_T6_WL)\
-|| defined(CONFIG_MACH_T6_WHL) || defined(CONFIG_MACH_DUMMY) || defined(CONFIG_MACH_T6_U)
-
-#define MAX_I2C_RETRIES 2
-#else
-#define MAX_I2C_RETRIES 20
-#endif
-static int i2c_transfer_retry(struct i2c_adapter *adap,
-			struct i2c_msg *msgs,
-			int len)
-{
-	int i2c_retry = 0;
-	int ns; 
-
-	while (i2c_retry++ < MAX_I2C_RETRIES) {
-		ns = i2c_transfer(adap, msgs, len);
-		if (ns == len)
-			break;
-		pr_err("[CAM]%s: try %d/%d: i2c_transfer sent: %d, len %d\n",
-			__func__,
-			i2c_retry, MAX_I2C_RETRIES, ns, len);
-		msleep(10);
-	}
-
-	return ns == len ? 0 : -EIO;
-}
-#endif
+#include "msm.h"
+#include "msm_cci.h"
+#define I2C_REG_DATA_MAX       (8*1024)
 
 int32_t msm_camera_i2c_rxdata(struct msm_camera_i2c_client *dev_client,
 	unsigned char *rxdata, int data_length)
@@ -422,51 +389,27 @@ int32_t msm_camera_i2c_write_tbl(struct msm_camera_i2c_client *client,
 	int i,write_len,burst_size=128,remain_len=0,addr=0;
 	uint8_t* buf=0;
 	int32_t rc = -EFAULT;
-	for (i = 0; i < size; i++) {
-		enum msm_camera_i2c_data_type dt;
-		if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL) {
-			rc = msm_camera_i2c_poll(client, reg_conf_tbl->reg_addr,
-				reg_conf_tbl->reg_data, reg_conf_tbl->dt);
-		} 
-		else if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL_EQUAL ||
-				 reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL_NOT_EQUAL ||
-				 reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL_LESS) {
-		
-			rc = msm_camera_i2c_poll2(client, reg_conf_tbl);
-		
-		}
-        else if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_WRITE_BURST) {
-			buf = reg_conf_tbl->burst_data;
-			remain_len = reg_conf_tbl->burst_count;
-			write_len = MIN (reg_conf_tbl->burst_count,burst_size);
-			addr = reg_conf_tbl->reg_addr;
 
-			do {
-				rc = msm_camera_i2c_write_seq(client,addr,buf,write_len);
+	if (!client || !reg_conf_tbl)
+		return rc;
 
-				addr += write_len;
-				buf += write_len;
-				remain_len -= write_len;
-				write_len = MIN(remain_len ,burst_size);
-			}
-			while (rc>=0 && write_len>0);
-        }
-		else {
-			if (reg_conf_tbl->dt == 0)
-				dt = data_type;
-			else
-				dt = reg_conf_tbl->dt;
-
-			switch (dt) {
-			case MSM_CAMERA_I2C_BYTE_DATA:
-			case MSM_CAMERA_I2C_WORD_DATA:
-				rc = msm_camera_i2c_write(
-					client,
-					reg_conf_tbl->reg_addr,
-					reg_conf_tbl->reg_data, dt);
-				break;
-			case MSM_CAMERA_I2C_SET_BYTE_MASK:
-				rc = msm_camera_i2c_set_mask(client,
+	if (client->cci_client) {
+		struct msm_camera_cci_ctrl cci_ctrl;
+		cci_ctrl.cmd = MSM_CCI_I2C_WRITE;
+		cci_ctrl.cci_info = client->cci_client;
+		cci_ctrl.cfg.cci_i2c_write_cfg.reg_conf_tbl = reg_conf_tbl;
+		cci_ctrl.cfg.cci_i2c_write_cfg.data_type = data_type;
+		cci_ctrl.cfg.cci_i2c_write_cfg.addr_type = client->addr_type;
+		cci_ctrl.cfg.cci_i2c_write_cfg.size = size;
+		rc = v4l2_subdev_call(client->cci_client->cci_subdev,
+				core, ioctl, VIDIOC_MSM_CCI_CFG, &cci_ctrl);
+		CDBG("%s line %d rc = %d\n", __func__, __LINE__, rc);
+		rc = cci_ctrl.status;
+	} else {
+		for (i = 0; i < size; i++) {
+			enum msm_camera_i2c_data_type dt;
+			if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL) {
+				rc = msm_camera_i2c_poll(client,
 					reg_conf_tbl->reg_addr,
 					reg_conf_tbl->reg_data,
 					MSM_CAMERA_I2C_BYTE_DATA, 1);
@@ -542,7 +485,7 @@ int32_t msm_camera_i2c_read(struct msm_camera_i2c_client *client,
 	enum msm_camera_i2c_data_type data_type)
 {
 	int32_t rc = -EFAULT;
-	unsigned char buf[client->addr_type+data_type];
+	unsigned char *buf = NULL;
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
 		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
@@ -550,16 +493,43 @@ int32_t msm_camera_i2c_read(struct msm_camera_i2c_client *client,
 		&& data_type != MSM_CAMERA_I2C_WORD_DATA))
 		return rc;
 
-	if (client->addr_type == MSM_CAMERA_I2C_BYTE_ADDR) {
-		buf[0] = addr;
-	} else if (client->addr_type == MSM_CAMERA_I2C_WORD_ADDR) {
-		buf[0] = addr >> BITS_PER_BYTE;
-		buf[1] = addr;
-	}
-	rc = msm_camera_i2c_rxdata(client, buf, data_type);
-	if (rc < 0) {
-		S_I2C_DBG("%s fail\n", __func__);
+	if (client->addr_type > UINT_MAX - data_type) {
+		pr_err("%s: integer overflow prevented\n", __func__);
 		return rc;
+	}
+
+	buf = kzalloc(client->addr_type+data_type, GFP_KERNEL);
+	if (!buf) {
+		pr_err("%s:%d no memory\n", __func__, __LINE__);
+		return -ENOMEM;
+	}
+
+	if (client->cci_client) {
+		struct msm_camera_cci_ctrl cci_ctrl;
+		cci_ctrl.cmd = MSM_CCI_I2C_READ;
+		cci_ctrl.cci_info = client->cci_client;
+		cci_ctrl.cfg.cci_i2c_read_cfg.addr = addr;
+		cci_ctrl.cfg.cci_i2c_read_cfg.addr_type = client->addr_type;
+		cci_ctrl.cfg.cci_i2c_read_cfg.data = buf;
+		cci_ctrl.cfg.cci_i2c_read_cfg.num_byte = data_type;
+		rc = v4l2_subdev_call(client->cci_client->cci_subdev,
+				core, ioctl, VIDIOC_MSM_CCI_CFG, &cci_ctrl);
+		CDBG("%s line %d rc = %d\n", __func__, __LINE__, rc);
+		rc = cci_ctrl.status;
+	} else {
+		if (client->addr_type == MSM_CAMERA_I2C_BYTE_ADDR) {
+			buf[0] = addr;
+		} else if (client->addr_type == MSM_CAMERA_I2C_WORD_ADDR) {
+			buf[0] = addr >> BITS_PER_BYTE;
+			buf[1] = addr;
+		}
+		rc = msm_camera_i2c_rxdata(client, buf, data_type);
+		if (rc < 0) {
+			S_I2C_DBG("%s fail\n", __func__);
+			kfree(buf);
+			buf = NULL;
+			return rc;
+		}
 	}
 	if (data_type == MSM_CAMERA_I2C_BYTE_DATA)
 		*data = buf[0];
@@ -567,6 +537,8 @@ int32_t msm_camera_i2c_read(struct msm_camera_i2c_client *client,
 		*data = buf[0] << 8 | buf[1];
 
 	S_I2C_DBG("%s addr = 0x%x data: 0x%x\n", __func__, addr, *data);
+	kfree(buf);
+	buf = NULL;
 	return rc;
 }
 
@@ -574,7 +546,7 @@ int32_t msm_camera_i2c_read_seq(struct msm_camera_i2c_client *client,
 	uint16_t addr, uint8_t *data, uint16_t num_byte)
 {
 	int32_t rc = -EFAULT;
-	unsigned char buf[client->addr_type+num_byte];
+	unsigned char *buf = NULL;
 	int i;
 
 	memset(buf, 0, sizeof(buf));
@@ -583,16 +555,48 @@ int32_t msm_camera_i2c_read_seq(struct msm_camera_i2c_client *client,
 		|| num_byte == 0)
 		return rc;
 
-	if (client->addr_type == MSM_CAMERA_I2C_BYTE_ADDR) {
-		buf[0] = addr;
-	} else if (client->addr_type == MSM_CAMERA_I2C_WORD_ADDR) {
-		buf[0] = addr >> BITS_PER_BYTE;
-		buf[1] = addr;
-	}
-	rc = msm_camera_i2c_rxdata(client, buf, num_byte);
-	if (rc < 0) {
-		S_I2C_DBG("%s fail\n", __func__);
+	if (num_byte > I2C_REG_DATA_MAX) {
+		pr_err("%s: Error num_byte:0x%x exceeds 8K max supported:0x%x\n",
+			__func__, num_byte, I2C_REG_DATA_MAX);
 		return rc;
+	}
+	if (client->addr_type > UINT_MAX - num_byte) {
+		pr_err("%s: integer overflow prevented\n", __func__);
+		return rc;
+	}
+
+	buf = kzalloc(client->addr_type+num_byte, GFP_KERNEL);
+	if (!buf) {
+		pr_err("%s:%d no memory\n", __func__, __LINE__);
+		return -ENOMEM;
+	}
+
+	if (client->cci_client) {
+		struct msm_camera_cci_ctrl cci_ctrl;
+		cci_ctrl.cmd = MSM_CCI_I2C_READ;
+		cci_ctrl.cci_info = client->cci_client;
+		cci_ctrl.cfg.cci_i2c_read_cfg.addr = addr;
+		cci_ctrl.cfg.cci_i2c_read_cfg.addr_type = client->addr_type;
+		cci_ctrl.cfg.cci_i2c_read_cfg.data = buf;
+		cci_ctrl.cfg.cci_i2c_read_cfg.num_byte = num_byte;
+		rc = v4l2_subdev_call(client->cci_client->cci_subdev,
+				core, ioctl, VIDIOC_MSM_CCI_CFG, &cci_ctrl);
+		CDBG("%s line %d rc = %d\n", __func__, __LINE__, rc);
+		rc = cci_ctrl.status;
+	} else {
+		if (client->addr_type == MSM_CAMERA_I2C_BYTE_ADDR) {
+			buf[0] = addr;
+		} else if (client->addr_type == MSM_CAMERA_I2C_WORD_ADDR) {
+			buf[0] = addr >> BITS_PER_BYTE;
+			buf[1] = addr;
+		}
+		rc = msm_camera_i2c_rxdata(client, buf, num_byte);
+		if (rc < 0) {
+			S_I2C_DBG("%s fail\n", __func__);
+			kfree(buf);
+			buf = NULL;
+			return rc;
+		}
 	}
 
 	S_I2C_DBG("%s addr = 0x%x", __func__, addr);
@@ -601,22 +605,26 @@ int32_t msm_camera_i2c_read_seq(struct msm_camera_i2c_client *client,
 		S_I2C_DBG("Byte %d: 0x%x\n", i, buf[i]);
 		S_I2C_DBG("Data: 0x%x\n", data[i]);
 	}
+	kfree(buf);
+	buf = NULL;
 	return rc;
 }
 
 int32_t msm_sensor_write_conf_array(struct msm_camera_i2c_client *client,
 			struct msm_camera_i2c_conf_array *array, uint16_t index)
 {
-	int32_t rc;
+	int32_t rc = 0;
 
-	rc = msm_camera_i2c_write_tbl(client,
-		(struct msm_camera_i2c_reg_conf *) array[index].conf,
-		array[index].size, array[index].data_type);
-	if (array[index].delay > 20)
-		msleep(array[index].delay);
-	else
-		usleep_range(array[index].delay*1000,
-					(array[index].delay+1)*1000);
+	if (client && array) {
+		rc = msm_camera_i2c_write_tbl(client,
+			(struct msm_camera_i2c_reg_conf *) array[index].conf,
+			array[index].size, array[index].data_type);
+		if (array[index].delay > 20)
+			msleep(array[index].delay);
+		else
+			usleep_range(array[index].delay*1000,
+						(array[index].delay+1)*1000);
+	}
 	return rc;
 }
 
@@ -652,10 +660,12 @@ int32_t msm_sensor_write_all_conf_array(struct msm_camera_i2c_client *client,
 			struct msm_camera_i2c_conf_array *array, uint16_t size)
 {
 	int32_t rc = 0, i;
-	for (i = 0; i < size; i++) {
-		rc = msm_sensor_write_conf_array(client, array, i);
-		if (rc < 0)
-			break;
+	if (client && array) {
+		for (i = 0; i < size; i++) {
+			rc = msm_sensor_write_conf_array(client, array, i);
+			if (rc < 0)
+				break;
+		}
 	}
 	return rc;
 }

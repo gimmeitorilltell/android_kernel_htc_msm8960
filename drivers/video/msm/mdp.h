@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -298,6 +298,7 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define MDP_PRIM_VSYNC_TERM 0x100
 #define MDP_EXTER_VSYNC_TERM 0x200
 #define MDP_PRIM_RDPTR_TERM 0x400
+#define MDP_SEC_VSYNC_TERM 0x800
 #endif
 #define MDP_OVERLAY2_TERM 0x80
 #define MDP_HISTOGRAM_TERM_DMA_P 0x10000
@@ -626,7 +627,9 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define DMA_OUT_SEL_AHB                     0
 #define DMA_OUT_SEL_LCDC                    BIT(20)
 #define DMA_IBUF_FORMAT_RGB888              0
+#define DMA_IBUF_FORMAT_RGB565              BIT(25)
 #define DMA_IBUF_FORMAT_xRGB8888_OR_ARGB8888  BIT(26)
+#define DMA_IBUF_FORMAT_EXTEND              BIT(27)
 
 #ifdef CONFIG_FB_MSM_MDP303
 #define DMA_OUT_SEL_DSI_CMD                  BIT(19)
@@ -650,6 +653,7 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define DMA_AHBM_LCD_SEL_PRIMARY            0
 #define DMA_AHBM_LCD_SEL_SECONDARY          0
 #define DMA_IBUF_C3ALPHA_EN                 0
+#define DMA_BUF_FORMAT_XRGB8888             BIT(26)
 #define DMA_BUF_FORMAT_RGB565		BIT(25)
 #define DMA_DITHER_EN                       BIT(24)	/* dma_p */
 #define DMA_DEFLKR_EN                       BIT(24)	/* dma_e */
@@ -731,6 +735,55 @@ extern struct mdp_hist_mgmt *mdp_hist_mgmt_array[];
 #define MDP_DMA_P_LUT_C2_EN   BIT(2)
 #define MDP_DMA_P_LUT_POST    BIT(4)
 
+#define MISR_MAX_ONE_FRAME_TIME_WAIT  20
+#define MAX_RETRIES_CRC_CAPTURE       20
+
+/* MDP_TEST_BUS output select (MDP_SEL_TEST_BUS_CLK_DOMAIN) */
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_CORE_CLOCK    0x0
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_HCLK          0x1
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_PCLK          0x2
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_TV_CLK        0x3
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_DSI_PCLK      0x4
+#define MDP_SEL_TEST_BUS_CLK_DOMAIN_AXI_CLK       0x5
+
+/* MDP_TEST_MODE_HCLK test point select (MDP_TEST_MODE_HCLK) */
+#define MDP_TEST_MODE_HCLK_DISABLED               0x00
+#define MDP_TEST_MODE_HCLK_MDDI1                  0x10
+#define MDP_TEST_MODE_HCLK_MDDI2                  0x20
+#define MDP_TEST_MODE_HCLK_AHBM                   0x30
+
+/* MDP_TEST_MODE_DCLK test point select (MDP_TEST_MODE_DCLK) */
+#define MDP_TEST_MODE_DCLK_DISABLED               0x00
+#define MDP_TEST_MODE_DCLK_LCDC1                  0x10
+#define MDP_TEST_MODE_DCLK_LCDC2                  0x20
+#define MDP_TEST_MODE_DCLK_DSI_CMD                0x30
+
+/* MDP_TEST_MODE_TVCLK test point select (MDP_TEST_MODE_TVCLK) */
+#define MDP_TEST_MODE_TVCLK_DISABLED              0x00
+#define MDP_TEST_MODE_TVCLK_ATV                   0x10
+#define MDP_TEST_MODE_TVCLK_DTV1                  0x20
+#define MDP_TEST_MODE_TVCLK_DTV2                  0x30
+
+/* MDP_TEST_MODE_DSI_PCLK test point select (MDP_TEST_MODE_DSI_PCLK) */
+#define MDP_TEST_MODE_DSI_PCLK_DISABLED           0x00
+#define MDP_TEST_MODE_DSI_PCLK_DSI_VIDEO1         0x10
+#define MDP_TEST_MODE_DSI_PCLK_DSI_VIDEO2         0x20
+#define MDP_TEST_MODE_DSI_PCLK_DSI_CMD            0x30
+
+/* MISR Reset (MDP_TEST_MISR_RESET_CLK/HCLK/DCLK/TVCLK/DSI_PCLK) */
+#define MDP_TEST_MISR_SW_RESET                    0x1
+
+/*
+ * Capture a maximum frame count of 1 (bits 9:2) and stop after that
+ * frame count (bit 1) (MDP_TEST_CAPTURED_DCLK/TVCLK/DSI_PCLK)
+ */
+#define MDP_TEST_CAPTURE_FRAME_COUNT              0x1
+#define MDP_TEST_CAPTURE_FRAME_COUNT_MASK \
+		((MDP_TEST_CAPTURE_FRAME_COUNT << 2) | BIT(1))
+
+/* MISR captured (MDP_TEST_CAPTURED_DCLK/TVCLK/DSI_PCLK) */
+#define MDP_TEST_CAPTURED_MASK                    0x1
+
 void mdp_hw_init(void);
 int mdp_ppp_pipe_wait(void);
 void mdp_pipe_kickoff_simplified(uint32 term);
@@ -777,7 +830,6 @@ void mdp_dma3_update(struct msm_fb_data_type *mfd);
 int mdp_lcdc_on(struct platform_device *pdev);
 int mdp_lcdc_off(struct platform_device *pdev);
 void mdp_lcdc_update(struct msm_fb_data_type *mfd);
-void mdp_free_splash_buffer(struct msm_fb_data_type *mfd);
 #ifdef CONFIG_FB_MSM_MDP303
 int mdp_dsi_video_on(struct platform_device *pdev);
 int mdp_dsi_video_off(struct platform_device *pdev);
@@ -919,6 +971,7 @@ int mdp_ppp_v4l2_overlay_play(struct fb_info *info,
 void mdp_update_pm(struct msm_fb_data_type *mfd, ktime_t pre_vsync);
 
 u32 mdp_get_panel_framerate(struct msm_fb_data_type *mfd);
+int mdp_misr_get(struct msm_fb_data_type *mfd, uint32_t *crc);
 
 #ifdef CONFIG_FB_MSM_DTV
 void mdp_vid_quant_set(void);
@@ -949,4 +1002,121 @@ static inline void mdp_vid_quant_set(void)
 #endif
 int mdp_preset_lut_update_lcdc(struct fb_cmap *cmap, uint32_t *internal_lut);
 #endif
+
+int mdp_disable_splash(struct msm_fb_data_type *mfd);
+
+/**
+ * enum mdp_recovery_error_type - all supported error types
+ * @MDP_RECOVERY_DISPLAY_ENGINE_ERROR: Display engine error
+ * @MDP_RECOVERY_BRIDGE_CHIP_ERROR: Bridge chip error
+ * @MDP_RECOVERY_MAX_ERROR_TYPES: total error type number
+ */
+enum mdp_recovery_error_type {
+	MDP_RECOVERY_DISPLAY_ENGINE_ERROR = 0,
+	MDP_RECOVERY_BRIDGE_CHIP_ERROR,
+	MDP_RECOVERY_MAX_ERROR_TYPES
+};
+
+/**
+ * enum mdp_recovery_status_type - error status types
+ * @MDP_RECOVERY_ERROR_DETECTED: the error is detected
+ * @MDP_RECOVERY_SUCCESS: the error is recovered successfully
+ * @MDP_RECOVERY_CRITICAL_ERROR: the error can't be recovered
+ */
+enum mdp_recovery_status_type {
+	MDP_RECOVERY_ERROR_DETECTED = 0,
+	MDP_RECOVERY_SUCCESS,
+	MDP_RECOVERY_CRITICAL_ERROR,
+};
+
+/**
+ * enum mdp_recovery_ack_type - ack type of client acknowledgement
+ * @MDP_RECOVERY_ACK_IGNORE: ignore the error
+ * @MDP_RECOVERY_ACK_RECOVER: do recovery of this error
+ * @MDP_RECOVERY_ACK_RECOVER_ALL: do recovery of the whole pipeline of the error
+ * @MDP_RECOVERY_ACK_MAX_NUM: total Ack type number
+ */
+enum mdp_recovery_ack_type {
+	MDP_RECOVERY_ACK_IGNORE = 0,
+	MDP_RECOVERY_ACK_RECOVER,
+	MDP_RECOVERY_ACK_RECOVER_ALL,
+	MDP_RECOVERY_ACK_MAX_NUM
+};
+
+/**
+ * struct mdp_recovery_callback_info - callback information used in callback
+ * function parameters.
+ * @err_type: error type
+ * @display_id: display ID of the error.
+ * @status: error status
+ * @data: the user data pointer provided by the client when registering
+ */
+struct mdp_recovery_callback_info {
+	enum mdp_recovery_error_type err_type;
+	int display_id;
+	enum mdp_recovery_status_type status;
+	void *data;
+};
+
+/**
+ * mdp_recovery_notification_cb() - Prototype of notification callback function
+ * @handle: client handle
+ * @info: Pointer to a data structure of callback information
+ */
+typedef void (*mdp_recovery_notification_cb)(void *handle,
+			struct mdp_recovery_callback_info *info);
+
+/**
+ * struct mdp_recovery_client_register_info - Client info used in register API
+ * @error_mask: A bit mask of error types that the client needs to be notified.
+		Error type value is bit number.
+ * @cb: notification callback function
+ * @cb_data: pointer to user data that will be returned with callback
+ */
+struct mdp_recovery_client_register_info {
+	uint32_t error_mask;
+	mdp_recovery_notification_cb cb;
+	void *cb_data;
+};
+
+/**
+ * struct mdp_recovery_ack_info - data structure for acknowledgement info
+ * @err_type: error type of the acknowledgement
+ * @display_id: display ID
+ * @ack_type: Acknowledgement type
+ */
+struct mdp_recovery_ack_info {
+	enum mdp_recovery_error_type err_type;
+	int display_id;
+	enum mdp_recovery_ack_type ack_type;
+};
+
+/**
+ * mdp_recovery_register() - for kernel client to register the notification
+ * callback.
+ * @info: information used for registering.
+ * @handle: handle returned by driver.
+ */
+int mdp_recovery_register(struct mdp_recovery_client_register_info *info,
+			void **handle);
+
+/**
+ * mdp_recovery_deregister() - for kernel client to deregister from the driver
+ * @handle: a valid client handle.
+ */
+int mdp_recovery_deregister(void *handle);
+
+/**
+ * mdp_recovery_acknowledge() - for client to acknowledge the notification
+ * @handle: a valid client handle.
+ * @ack_info: the information of this acknowledgement.
+ */
+int mdp_recovery_acknowledge(void *handle,
+			struct mdp_recovery_ack_info *ack_info);
+
+int mdp_recovery_initialize(void);
+int mdp_recovery_set_error(int display_id,
+			enum mdp_recovery_error_type err_type);
+void mdp_recovery_debug(int debug_flag);
+
 #endif /* MDP_H */

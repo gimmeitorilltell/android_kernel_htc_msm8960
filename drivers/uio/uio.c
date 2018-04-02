@@ -668,6 +668,8 @@ static int uio_mmap_physical(struct vm_area_struct *vma)
 	if (mi < 0)
 		return -EINVAL;
 	mem = idev->info->mem + mi;
+	if (vma->vm_end - vma->vm_start > mem->size)
+		return -EINVAL;
 
 	if (vma->vm_end - vma->vm_start > mem->size)
 		return -EINVAL;

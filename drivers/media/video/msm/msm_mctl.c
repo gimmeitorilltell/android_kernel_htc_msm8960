@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, 2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -142,7 +142,55 @@ static struct msm_isp_color_fmt msm_isp_formats[] = {
 	.depth	  = 10,
 	.bitsperpxl = 10,
 	.fourcc	 = V4L2_PIX_FMT_SBGGR10,
-	.pxlcode	= V4L2_MBUS_FMT_SGRBG10_1X10, 
+	.pxlcode	= V4L2_MBUS_FMT_SGRBG10_1X10, /* Bayer sensor */
+	.colorspace = V4L2_COLORSPACE_JPEG,
+	},
+	{
+	.name	   = "YUYV",
+	.depth	  = 16,
+	.bitsperpxl = 16,
+	.fourcc	 = V4L2_PIX_FMT_YUYV,
+	.pxlcode	= V4L2_MBUS_FMT_YUYV8_2X8, /* YUV sensor */
+	.colorspace = V4L2_COLORSPACE_JPEG,
+	},
+	{
+	.name	   = "UYVY",
+	.depth	  = 16,
+	.bitsperpxl = 16,
+	.fourcc	 = V4L2_PIX_FMT_UYVY,
+	.pxlcode	= V4L2_MBUS_FMT_UYVY8_2X8, /* YUV sensor */
+	.colorspace = V4L2_COLORSPACE_SMPTE170M,
+	},
+	{
+	.name	   = "SAEC",
+	.depth	  = 16,
+	.bitsperpxl = 16,
+	.fourcc	 = V4L2_PIX_FMT_STATS_AE,
+	.pxlcode	= V4L2_MBUS_FMT_SBGGR10_1X10, /* YUV sensor */
+	.colorspace = V4L2_COLORSPACE_JPEG,
+	},
+	{
+	.name	   = "SAWB",
+	.depth	  = 16,
+	.bitsperpxl = 16,
+	.fourcc	 = V4L2_PIX_FMT_STATS_AWB,
+	.pxlcode	= V4L2_MBUS_FMT_SBGGR10_1X10, /* YUV sensor */
+	.colorspace = V4L2_COLORSPACE_JPEG,
+	},
+	{
+	.name	   = "SAFC",
+	.depth	  = 16,
+	.bitsperpxl = 16,
+	.fourcc	 = V4L2_PIX_FMT_STATS_AF,
+	.pxlcode	= V4L2_MBUS_FMT_SBGGR10_1X10, /* YUV sensor */
+	.colorspace = V4L2_COLORSPACE_JPEG,
+	},
+	{
+	.name      = "SHST",
+	.depth    = 16,
+	.bitsperpxl = 16,
+	.fourcc  = V4L2_PIX_FMT_STATS_IHST,
+	.pxlcode        = V4L2_MBUS_FMT_SBGGR10_1X10, /* YUV sensor */
 	.colorspace = V4L2_COLORSPACE_JPEG,
 	},
 
@@ -238,6 +286,55 @@ static int msm_mctl_set_vfe_output_mode(struct msm_cam_media_controller
 	return rc;
 }
 
+static uint8_t msm_sensor_state_check(
+	struct msm_cam_media_controller *p_mctl)
+{
+	struct msm_sensor_ctrl_t *s_ctrl = NULL;
+	if (!p_mctl)
+		return 0;
+	if (!p_mctl->sensor_sdev)
+		return 0;
+	s_ctrl = get_sctrl(p_mctl->sensor_sdev);
+	if (s_ctrl->sensor_state == MSM_SENSOR_POWER_UP)
+		return 1;
+	return 0;
+}
+
+static int msm_mctl_add_intf_to_mctl_map(
+	struct msm_cam_media_controller *p_mctl,
+	struct intf_mctl_mapping_cfg *intf_map)
+{
+
+	int i;
+	int rc = 0;
+	uint32_t mctl_handle;
+
+	mctl_handle = msm_cam_find_handle_from_mctl_ptr(p_mctl);
+	if (mctl_handle == 0) {
+		pr_err("%s Error in finding handle from mctl_ptr",
+				__func__);
+		return -EFAULT;
+	}
+	if (intf_map->num_entries > MSM_V4L2_EXT_CAPTURE_MODE_MAX) {
+		pr_err("%s Error num_entries exceeds max %d",
+				__func__, intf_map->num_entries);
+		return -EFAULT;
+	}
+	for (i = 0; i < intf_map->num_entries; i++) {
+		rc = msm_cam_server_config_interface_map(
+			intf_map->image_modes[i], mctl_handle,
+			intf_map->vnode_id, intf_map->is_bayer_sensor);
+		if (rc < 0) {
+				pr_err("%s Error in INTF MAPPING rc = %d",
+					__func__, rc);
+				return -EINVAL;
+		}
+	}
+	return rc;
+}
+
+/* called by the server or the config nodes to handle user space
+	commands*/
 static int msm_mctl_cmd(struct msm_cam_media_controller *p_mctl,
 			unsigned int cmd, unsigned long arg)
 {
@@ -1372,12 +1469,30 @@ static int msm_mctl_v4l2_s_ctrl(struct file *f, void *pctx,
 			pr_err("%s inst %pK Copying plane_info failed ",
 					__func__, pcam_inst);
 			rc = -EFAULT;
+		} else if (pcam_inst->plane_info.num_planes
+				> VIDEO_MAX_PLANES) {
+			pr_err("%s: inst %p got invalid num_planes (%d)",
+					__func__, pcam_inst,
+					pcam_inst->plane_info.num_planes);
+			rc = -EINVAL;
 		}
-		D("%s inst %pK got plane info: num_planes = %d,"
+
+		D("%s inst %p got plane info: num_planes = %d," \
 				"plane size = %ld %ld ", __func__, pcam_inst,
 				pcam_inst->plane_info.num_planes,
 				pcam_inst->plane_info.plane[0].size,
 				pcam_inst->plane_info.plane[1].size);
+
+	} else if (ctrl->id == MSM_V4L2_PID_AVTIMER){
+		pcam_inst->avtimerOn = ctrl->value;
+		D("%s: mmap_inst=(0x%p, %d) AVTimer=%d\n",
+			 __func__, pcam_inst, pcam_inst->my_index, ctrl->value);
+		/*Kernel drivers to access AVTimer*/
+		avcs_core_open();
+		/*Turn ON DSP/Disable power collapse*/
+		avcs_core_disable_power_collapse(1);
+		pcam_inst->p_avtimer_lsw = ioremap(AVTIMER_LSW_PHY_ADDR, 4);
+		pcam_inst->p_avtimer_msw = ioremap(AVTIMER_MSW_PHY_ADDR, 4);
 	} else
 		pr_err("%s Unsupported S_CTRL Value ", __func__);
 

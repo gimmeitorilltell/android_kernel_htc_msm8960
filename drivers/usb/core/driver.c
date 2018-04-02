@@ -534,6 +534,14 @@ int usb_match_one_id_intf(struct usb_device *dev,
 			  struct usb_host_interface *intf,
 			  const struct usb_device_id *id)
 {
+
+	/* proc_connectinfo in devio.c may call us with id == NULL. */
+	if (id == NULL)
+		return 0;
+
+	if (!usb_match_device(dev, id))
+		return 0;
+
 	/* The interface class, subclass, protocol and number should never be
 	 * checked for a match if the device class is Vendor Specific,
 	 * unless the match record specifies the Vendor ID. */
@@ -1424,7 +1432,10 @@ int usb_suspend(struct device *dev, pm_message_t msg)
 {
 	struct usb_device	*udev = to_usb_device(dev);
 
-	if (udev->bus->skip_resume) {
+	if (udev->bus->allow_pm_suspend) {
+		if (udev->state == USB_STATE_SUSPENDED)
+			return 0;
+	} else if (udev->bus->skip_resume) {
 		if (udev->state == USB_STATE_SUSPENDED) {
 			return 0;
 		} else {

@@ -2371,17 +2371,8 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 		break;
 	}
 	case QSEECOM_IOCTL_SET_MEM_PARAM_REQ: {
-		if ((data->type != QSEECOM_CLIENT_APP) &&
-			(data->type != QSEECOM_GENERIC) &&
-			(data->type != QSEECOM_SECURE_SERVICE)) {
-			pr_err("set mem param req: invalid handle (%d)\n",
-								data->type);
-			ret = -EINVAL;
-			break;
-		}
+		data->type = QSEECOM_CLIENT_APP;
 		pr_debug("SET_MEM_PARAM: qseecom addr = 0x%pK\n", data);
-		mutex_lock(&app_access_lock);
-		atomic_inc(&data->ioctl_count);
 		ret = qseecom_set_client_mem_param(data, argp);
 		atomic_dec(&data->ioctl_count);
 		mutex_unlock(&app_access_lock);
@@ -2410,13 +2401,6 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 		break;
 	}
 	case QSEECOM_IOCTL_UNLOAD_APP_REQ: {
-		if ((data->client.app_id == 0) ||
-			(data->type != QSEECOM_CLIENT_APP)) {
-			pr_err("unload app req:invalid handle(%d) app_id(%d)\n",
-					data->type, data->client.app_id);
-			ret = -EINVAL;
-			break;
-		}
 		pr_debug("UNLOAD_APP: qseecom_addr = 0x%pK\n", data);
 		mutex_lock(&app_access_lock);
 		atomic_inc(&data->ioctl_count);

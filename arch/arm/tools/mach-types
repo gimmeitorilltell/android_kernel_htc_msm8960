@@ -1213,3 +1213,6 @@ t6_ula                  MACH_T6_ULA             T6_ULA                  4644
 t6_wl                   MACH_T6_WL              T6_WL                   4645
 t6_whl                  MACH_T6_WHL             T6_WHL                  4646
 t6_uhl                  MACH_T6_UHL             T6_UHL                  4788
+apq8064_adp_2		MACH_APQ8064_ADP2	APQ8064_ADP2		4839
+apq8064_adp2_es2	MACH_APQ8064_ADP2_ES2	APQ8064_ADP2_ES2	4909
+apq8064_adp2_es2p5	MACH_APQ8064_ADP2_ES2P5	APQ8064_ADP2_ES2P5		7801

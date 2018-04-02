@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, 2014-2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,44 +20,16 @@
 #include <media/msm_isp.h>
 #include "msm_csiphy.h"
 #include "msm.h"
-
-#define DBG_CSIPHY 1
+#include "msm_csiphy_hwreg.h"
+#include <mach/socinfo.h>
+#define DBG_CSIPHY 0
 
 #define V4L2_IDENT_CSIPHY                        50003
 
-#define MIPI_CSIPHY_LNn_CFG1_ADDR                0x0
-#define MIPI_CSIPHY_LNn_CFG2_ADDR                0x4
-#define MIPI_CSIPHY_LNn_CFG3_ADDR                0x8
-#define MIPI_CSIPHY_LNn_CFG4_ADDR                0xC
-#define MIPI_CSIPHY_LNn_CFG5_ADDR                0x10
-#define MIPI_CSIPHY_LNCK_CFG1_ADDR               0x100
-#define MIPI_CSIPHY_LNCK_CFG2_ADDR               0x104
-#define MIPI_CSIPHY_LNCK_CFG3_ADDR               0x108
-#define MIPI_CSIPHY_LNCK_CFG4_ADDR               0x10C
-#define MIPI_CSIPHY_LNCK_CFG5_ADDR               0x110
-#define MIPI_CSIPHY_LNCK_MISC1_ADDR              0x128
-#define MIPI_CSIPHY_GLBL_T_INIT_CFG0_ADDR        0x1E0
-#define MIPI_CSIPHY_T_WAKEUP_CFG0_ADDR           0x1E8
-#define MIPI_CSIPHY_T_WAKEUP_CFG1_ADDR           0x1EC
-#define MIPI_CSIPHY_GLBL_RESET_ADDR             0x0140
-#define MIPI_CSIPHY_GLBL_PWR_CFG_ADDR           0x0144
-#define MIPI_CSIPHY_INTERRUPT_STATUS0_ADDR      0x0180
-#define MIPI_CSIPHY_INTERRUPT_STATUS1_ADDR      0x0184
-#define MIPI_CSIPHY_INTERRUPT_STATUS2_ADDR      0x0188
-#define MIPI_CSIPHY_INTERRUPT_STATUS3_ADDR      0x018C
-#define MIPI_CSIPHY_INTERRUPT_STATUS4_ADDR      0x0190
-#define MIPI_CSIPHY_INTERRUPT_MASK0_ADDR        0x01A0
-#define MIPI_CSIPHY_INTERRUPT_MASK1_ADDR        0x01A4
-#define MIPI_CSIPHY_INTERRUPT_MASK2_ADDR        0x01A8
-#define MIPI_CSIPHY_INTERRUPT_MASK3_ADDR        0x01AC
-#define MIPI_CSIPHY_INTERRUPT_MASK4_ADDR        0x01B0
-#define MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR       0x01C0
-#define MIPI_CSIPHY_INTERRUPT_CLEAR1_ADDR       0x01C4
-#define MIPI_CSIPHY_INTERRUPT_CLEAR2_ADDR       0x01C8
-#define MIPI_CSIPHY_INTERRUPT_CLEAR3_ADDR       0x01CC
-#define MIPI_CSIPHY_INTERRUPT_CLEAR4_ADDR       0x01D0
+struct csiphy_device *lsh_csiphy_dev[MAX_CSIPHY];
 
-int msm_csiphy_config(struct csiphy_cfg_params *cfg_params)
+int msm_csiphy_lane_config(struct csiphy_device *csiphy_dev,
+	struct msm_camera_csiphy_params *csiphy_params)
 {
 	int rc = 0;
 	int i = 0;
@@ -112,28 +84,29 @@ static irqreturn_t msm_csiphy_irq(int irq_num, void *data)
 {
 	uint32_t irq;
 	struct csiphy_device *csiphy_dev = data;
-	irq = msm_io_r(csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_STATUS0_ADDR);
-	msm_io_w(irq, csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR);
-	pr_info("%s MIPI_CSIPHY%d_INTERRUPT_STATUS0 = 0x%x\n",
-		__func__, csiphy_dev->pdev->id, irq);
-	irq = msm_io_r(csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_STATUS1_ADDR);
-	msm_io_w(irq, csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_CLEAR1_ADDR);
-	pr_info("%s MIPI_CSIPHY%d_INTERRUPT_STATUS1 = 0x%x\n",
-		__func__, csiphy_dev->pdev->id, irq);
-	irq = msm_io_r(csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_STATUS2_ADDR);
-	msm_io_w(irq, csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_CLEAR2_ADDR);
-	pr_info("%s MIPI_CSIPHY%d_INTERRUPT_STATUS2 = 0x%x\n",
-		__func__, csiphy_dev->pdev->id, irq);
-	irq = msm_io_r(csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_STATUS3_ADDR);
-	msm_io_w(irq, csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_CLEAR3_ADDR);
-	pr_info("%s MIPI_CSIPHY%d_INTERRUPT_STATUS3 = 0x%x\n",
-		__func__, csiphy_dev->pdev->id, irq);
-	irq = msm_io_r(csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_STATUS4_ADDR);
-	msm_io_w(irq, csiphy_dev->base + MIPI_CSIPHY_INTERRUPT_CLEAR4_ADDR);
-	pr_info("%s MIPI_CSIPHY%d_INTERRUPT_STATUS4 = 0x%x\n",
-		__func__, csiphy_dev->pdev->id, irq);
-	msm_io_w(0x1, csiphy_dev->base + 0x164);
-	msm_io_w(0x0, csiphy_dev->base + 0x164);
+	if(!csiphy_dev || !csiphy_dev->base)
+		return IRQ_HANDLED;
+	for (i = 0; i < 8; i++) {
+		irq = msm_camera_io_r(
+			csiphy_dev->base +
+			MIPI_CSIPHY_INTERRUPT_STATUS0_ADDR + 0x4*i);
+		msm_camera_io_w(irq,
+			csiphy_dev->base +
+			MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR + 0x4*i);
+		pr_err("%s MIPI_CSIPHY%d_INTERRUPT_STATUS%d = 0x%x\n",
+			 __func__, csiphy_dev->pdev->id, i, irq);
+		msm_camera_io_w(0x1, csiphy_dev->base +
+			MIPI_CSIPHY_GLBL_IRQ_CMD_ADDR);
+		msm_camera_io_w(0x0, csiphy_dev->base +
+			MIPI_CSIPHY_GLBL_IRQ_CMD_ADDR);
+		msm_camera_io_w(0x0,
+			csiphy_dev->base +
+			MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR + 0x4*i);
+	}
+
+	v4l2_subdev_notify(&csiphy_dev->subdev,
+			NOTIFY_CSIPHY_ERROR, (void *)NULL);
+
 	return IRQ_HANDLED;
 }
 
@@ -173,6 +146,21 @@ static int msm_csiphy_init(struct v4l2_subdev *sd)
 	csiphy_dev = v4l2_get_subdevdata(sd);
 	if (csiphy_dev == NULL) {
 		rc = -ENOMEM;
+		return rc;
+	}
+
+	pr_debug("%s - %d", __func__, csiphy_dev->ref_count+1);
+
+	if (csiphy_dev->ref_count++) {
+		CDBG("%s csiphy refcount = %d\n", __func__,
+			csiphy_dev->ref_count);
+		return rc;
+	}
+
+	if (csiphy_dev->csiphy_state == CSIPHY_POWER_UP) {
+		pr_err("%s: csiphy invalid state %d\n", __func__,
+			csiphy_dev->csiphy_state);
+		rc = -EINVAL;
 		return rc;
 	}
 
@@ -219,15 +207,64 @@ static int msm_csiphy_init(struct v4l2_subdev *sd)
 
 static int msm_csiphy_release(struct v4l2_subdev *sd)
 {
-	struct csiphy_device *csiphy_dev;
-	int i;
-	csiphy_dev = v4l2_get_subdevdata(sd);
-	for (i = 0; i < 4; i++)
-		msm_io_w(0x0, csiphy_dev->base +
-		MIPI_CSIPHY_LNn_CFG2_ADDR + 0x40*i);
+	int i = 0;
+	struct msm_camera_csi_lane_params *csi_lane_params;
+	uint16_t csi_lane_mask;
+	csi_lane_params = (struct msm_camera_csi_lane_params *)arg;
+	csi_lane_mask = csi_lane_params->csi_lane_mask;
 
-	msm_io_w(0x0, csiphy_dev->base + MIPI_CSIPHY_LNCK_CFG2_ADDR);
-	msm_io_w(0x0, csiphy_dev->base + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);
+	pr_debug("%s - %d", __func__, csiphy_dev->ref_count-1);
+
+	if (!csiphy_dev) {
+		pr_err("%s csiphy dev NULL\n", __func__);
+		return 0;
+	}
+
+	if (csiphy_dev->ref_count) {
+		if (--csiphy_dev->ref_count)
+			return 0;
+	} else {
+		pr_err("%s refcnt already 0!", __func__);
+	}
+
+	if (csiphy_dev->reserved_adp) {
+		pr_err("%s - csiphy reserved!", __func__);
+		return 0;
+	}
+
+
+	if (csiphy_dev->csiphy_state != CSIPHY_POWER_UP) {
+		pr_err("%s: csiphy invalid state %d\n", __func__,
+			csiphy_dev->csiphy_state);
+		return -EINVAL;
+	}
+
+	CDBG("%s csiphy_params, lane assign %x mask = %x\n",
+		__func__,
+		csi_lane_params->csi_lane_assign,
+		csi_lane_params->csi_lane_mask);
+
+	if (csiphy_dev->hw_version != CSIPHY_VERSION_V3) {
+		csiphy_dev->lane_mask[csiphy_dev->pdev->id] = 0;
+		for (i = 0; i < 4; i++)
+			msm_camera_io_w(0x0, csiphy_dev->base +
+				MIPI_CSIPHY_LNn_CFG2_ADDR + 0x40*i);
+	} else {
+		csiphy_dev->lane_mask[csiphy_dev->pdev->id] &=
+			~(csi_lane_params->csi_lane_mask);
+		i = 0;
+		while (csi_lane_mask & 0x1F) {
+			if (csi_lane_mask & 0x1) {
+				msm_camera_io_w(0x0, csiphy_dev->base +
+					MIPI_CSIPHY_LNn_CFG2_ADDR + 0x40*i);
+			}
+			csi_lane_mask >>= 1;
+			i++;
+		}
+	}
+
+	msm_camera_io_w(0x0, csiphy_dev->base + MIPI_CSIPHY_LNCK_CFG2_ADDR);
+	msm_camera_io_w(0x0, csiphy_dev->base + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);
 
 #if DBG_CSIPHY
 	disable_irq(csiphy_dev->irq->start);
@@ -254,6 +291,65 @@ static int msm_csiphy_release(struct v4l2_subdev *sd)
 	return 0;
 }
 
+int msm_csiphy_init_adp(struct csiphy_device *csiphy_dev)
+{
+	int rc;
+	csiphy_dev->reserved_adp = true;
+	rc = msm_csiphy_init(csiphy_dev);
+	if (rc)
+		csiphy_dev->reserved_adp = false;
+
+	return rc;
+}
+
+int msm_csiphy_release_adp(struct csiphy_device *csiphy_dev, void *arg)
+{
+	csiphy_dev->reserved_adp = false;
+	return msm_csiphy_release(csiphy_dev, arg);
+}
+
+static long msm_csiphy_cmd(struct csiphy_device *csiphy_dev, void *arg)
+{
+	int rc = 0;
+	struct csiphy_cfg_data cdata;
+	struct msm_camera_csiphy_params csiphy_params;
+	if (!csiphy_dev) {
+		pr_err("%s: csiphy_dev NULL\n", __func__);
+		return -EINVAL;
+	}
+	if (copy_from_user(&cdata,
+		(void *)arg,
+		sizeof(struct csiphy_cfg_data))) {
+		pr_err("%s: %d failed\n", __func__, __LINE__);
+		return -EFAULT;
+	}
+	switch (cdata.cfgtype) {
+	case CSIPHY_INIT:
+		rc = msm_csiphy_init(csiphy_dev);
+		break;
+	case CSIPHY_CFG:
+		if (csiphy_dev->reserved_adp) {
+			pr_err("%s - CSIPHY reserved!", __func__);
+			return 0;
+		}
+
+		if (copy_from_user(&csiphy_params,
+			(void *)cdata.csiphy_params,
+			sizeof(struct msm_camera_csiphy_params))) {
+			pr_err("%s: %d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+		rc = msm_csiphy_lane_config(csiphy_dev, &csiphy_params);
+		break;
+	default:
+		pr_err("%s: %d failed\n", __func__, __LINE__);
+		rc = -ENOIOCTLCMD;
+		break;
+	}
+	return rc;
+}
+
 static long msm_csiphy_subdev_ioctl(struct v4l2_subdev *sd,
 			unsigned int cmd, void *arg)
 {
@@ -273,8 +369,18 @@ static long msm_csiphy_subdev_ioctl(struct v4l2_subdev *sd,
 		rc = msm_csiphy_init(sd);
 		break;
 	case VIDIOC_MSM_CSIPHY_RELEASE:
-		rc = msm_csiphy_release(sd);
+	{
+		struct msm_camera_csi_lane_params csi_lane_params;
+		if (copy_from_user(&csi_lane_params,
+				(void *)arg,
+				sizeof(struct msm_camera_csi_lane_params))) {
+			pr_err("%s: %d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+		rc = msm_csiphy_release(csiphy_dev, &csi_lane_params);
 		break;
+	}
 	default:
 		pr_err("%s: command not found\n", __func__);
 	}
@@ -351,7 +457,25 @@ static int __devinit csiphy_probe(struct platform_device *pdev)
 	new_csiphy_dev->pdev = pdev;
 	
 	msm_cam_register_subdev_node(
-		&new_csiphy_dev->subdev, CSIPHY_DEV, pdev->id);
+		&new_csiphy_dev->subdev, &sd_info);
+
+	media_entity_init(&new_csiphy_dev->subdev.entity, 0, NULL, 0);
+	new_csiphy_dev->subdev.entity.type = MEDIA_ENT_T_V4L2_SUBDEV;
+	new_csiphy_dev->subdev.entity.group_id = CSIPHY_DEV;
+	new_csiphy_dev->subdev.entity.name = pdev->name;
+	new_csiphy_dev->subdev.entity.revision =
+		new_csiphy_dev->subdev.devnode->num;
+	new_csiphy_dev->csiphy_state = CSIPHY_POWER_DOWN;
+
+	if (machine_is_apq8064_adp_2()
+			|| machine_is_apq8064_mplatform()
+			|| machine_is_apq8064_adp2_es2()
+			|| machine_is_apq8064_adp2_es2p5()) {
+		if (pdev->id >= 0 && pdev->id < MAX_CSIPHY) {
+			pr_debug("Init csiphy %d\n", pdev->id);
+			lsh_csiphy_dev[pdev->id] = new_csiphy_dev;
+		}
+	}
 	return 0;
 
 csiphy_no_resource:

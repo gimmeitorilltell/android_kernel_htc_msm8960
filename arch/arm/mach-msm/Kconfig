@@ -174,9 +174,7 @@ config ARCH_MSM8960
 	select MSM_IOMMU_GPU_SYNC if MSM_IOMMU
 	select MSM_CPU_PWRCTL
 	select GENERIC_TIME_VSYSCALL
-	select USE_USER_ACCESSIBLE_TIMERS
-	select ARM_USE_USER_ACCESSIBLE_TIMERS
-	select MSM_USE_USER_ACCESSIBLE_TIMERS
+	select MSM_SECURE_IO
 
 config ARCH_MSM8930
 	bool "MSM8930"
@@ -212,9 +210,6 @@ config ARCH_MSM8930
 	select MSM_IOMMU_GPU_SYNC if MSM_IOMMU
 	select MSM_CPU_PWRCTL
 	select GENERIC_TIME_VSYSCALL
-	select USE_USER_ACCESSIBLE_TIMERS
-	select ARM_USE_USER_ACCESSIBLE_TIMERS
-	select MSM_USE_USER_ACCESSIBLE_TIMERS
 
 config ARCH_APQ8064
 	bool "APQ8064"
@@ -245,9 +240,6 @@ config ARCH_APQ8064
 	select MSM_IOMMU_GPU_SYNC if MSM_IOMMU
 	select MSM_CPU_PWRCTL
 	select GENERIC_TIME_VSYSCALL
-	select USE_USER_ACCESSIBLE_TIMERS
-	select ARM_USE_USER_ACCESSIBLE_TIMERS
-	select MSM_USE_USER_ACCESSIBLE_TIMERS
 
 config ARCH_MSM8974
 	bool "MSM8974"
@@ -879,6 +871,32 @@ config MACH_APQ8064_CDP
 	help
 	  Support for the Qualcomm APQ8064 CDP device.
 
+config MACH_APQ8064_ADP2
+	depends on ARCH_APQ8064
+	bool "APQ8064 ADP2"
+	help
+	  Support for the Qualcomm APQ8064 CDP device.
+
+config MACH_APQ8064_ADP2_ES2
+	depends on ARCH_APQ8064
+	bool "APQ8064 ADP2 ES2"
+	help
+	 Support for Second revision of Qualcomm APQ8064
+	 based Automotive grade Development platform.
+	 Peripherals like WLAN card with QCA6574 ASIC,
+	 DiRaNa Audio Codec, USB based MDM9x15 modem are
+	 the major enhancements over the Previous version.
+
+config MACH_APQ8064_ADP2_ES2P5
+	depends on ARCH_APQ8064
+	bool "APQ8064 ADP2 ES2P5"
+	help
+	 Support for Third revision of Qualcomm APQ8064
+	 based Automotive grade Development platform.
+	 Peripherals like WLAN card with QCA6574 ASIC,
+	 DiRaNa Audio Codec, USB based MDM9x15 modem are
+	 included.
+
 config MACH_APQ8064_MTP
 	depends on ARCH_APQ8064
 	bool "APQ8064 MTP"
@@ -942,14 +960,21 @@ config MSM_STACKED_MEMORY
 	  memory.  When present this memory bank is used for a high speed
 	  shared memory interface.  When not present regular RAM is used.
 
+config APQ8064_ADP2_ES2_3GB
+	depends on ARCH_APQ8064
+	bool "Enables 3GB DDR on APQ8064 ADP2 ES2"
+	help
+	 Support for 3GB DDR for Qualcomm APQ8064. Automotive development
+	 platform supports 2GB configuration by default. Say y here to
+	 configure PHYS_OFFSET and ZRELADDR to access 3GB address range
+	 on the platform.
+
 config PHYS_OFFSET
 	hex
 	default "0x40800000" if ARCH_MSM9615
-	default "0x80600000" if ARCH_APQ8064 && MACH_HTC
-	default "0x80200000" if ARCH_APQ8064 && !MACH_HTC
-	default "0x80600000" if ARCH_MSM8930 && MACH_HTC
-	default "0x80400000" if ARCH_MSM8960 && MACH_HTC
-	default "0x80200000" if ARCH_MSM8960 && !MACH_HTC
+	default "0x40200000" if ARCH_APQ8064 && APQ8064_ADP2_ES2_3GB
+	default "0x80200000" if ARCH_APQ8064
+	default "0x80200000" if ARCH_MSM8960
 	default "0x80200000" if ARCH_MSM8930
 	default "0x00000000" if ARCH_MSM8974
 	default "0x00000000" if ARCH_MPQ8092
@@ -2030,16 +2055,6 @@ config SCORPION_Uni_45nm_BUG
 
 	  This bug is not applicable to any ScorpionMP or Scorpion Uni 65nm(SC65U) cores.
 
-config MSM_BUSPM_DEV
-	tristate "MSM Bus Performance Monitor Kernel Module"
-	depends on (ARCH_MSM8X60 || ARCH_MSM8960)
-	default m
-	help
-	  This kernel module is used to mmap() hardware registers for the
-	  performance monitors, counters, etc. The module can also be used to
-	  allocate physical memory which is used by bus performance hardware to
-	  dump performance data.
-
 config MSM_TZ_LOG
 	tristate "MSM Trust Zone (TZ) Log Driver"
 	depends on DEBUG_FS
@@ -2608,6 +2623,15 @@ config MSM_CPU_PWRCTL
 	  stand alone power collapse operation. Selecting this option
 	  ensures that they are always off.
 
+config MSM_BOOT_TIME_MARKER
+	bool "Use MSM boot time marker reporting"
+	help
+		Use this to mark msm boot kpi for measurement.
+		An instrumentation for boot time measurement.
+		To create an entry, call "place_marker" function.
+		At userspace, write marker name to "/sys/kernel/debug/bootkpi/kpi_values"
+		If unsure, say N
+
 config MSM_USE_USER_ACCESSIBLE_TIMERS
 	bool "Enables mapping an MSM timer counter page to user space."
 	depends on ARM_USE_USER_ACCESSIBLE_TIMERS
@@ -2615,10 +2639,14 @@ config MSM_USE_USER_ACCESSIBLE_TIMERS
 	  Enables MSM-specific user accessible timers via a shared
 	  memory page containing the cycle counter.
 
-config HAS_MACH_MEMUTILS
-	default n
-	bool "Motorola MSM memcpy enhancements"
+config MSM_S_PLATFORM
+	bool "Enables configuration for HDMI and CVBS"
 	help
-	Faster memcpy performance for Krait
+	  This config is used to enable HDMI-in and CVBS-in
+	  on the automotive platform.  This allows
+	  the input from a HDMI/cvbs bridge chip to be
+	  accessed by the tv input framework.
 
+config MSM_ROTARY_AS_REVERSE_GEAR
+	bool "Enables the use of rotary switch to trigger reverse camera."
 endif

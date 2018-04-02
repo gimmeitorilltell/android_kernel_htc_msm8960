@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -93,6 +93,7 @@ static void mdp4_wfd_queue_wakeup(struct msm_fb_data_type *mfd,
 		struct msmfb_writeback_data_list *node);
 static int mdp4_wfd_dequeue_update(struct msm_fb_data_type *mfd,
 		struct msmfb_writeback_data_list **wfdnode);
+static int is_wb_operation_allowed(struct msm_fb_data_type *mfd);
 
 int mdp4_overlay_writeback_on(struct platform_device *pdev)
 {
@@ -105,6 +106,7 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 	uint32 data;
 	struct vsycn_ctrl *vctrl;
 	int cndx = 0;
+	struct pipe_alloc alloc;
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -129,7 +131,10 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 	mdp_clk_ctrl(1);
 
 	if (vctrl->base_pipe == NULL) {
-		pipe = mdp4_overlay_pipe_alloc(OVERLAY_TYPE_BF, MDP4_MIXER2);
+		memset(&alloc, 0, sizeof(alloc));
+		alloc.ptype = OVERLAY_TYPE_BF;
+		alloc.mixer = MDP4_MIXER2;
+		pipe = mdp4_overlay_pipe_alloc(&alloc);
 		if (pipe == NULL) {
 			pr_info("%s: pipe_alloc failed\n", __func__);
 			mdp_clk_ctrl(0);
@@ -139,7 +144,7 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER2;
 		pipe->src_format = MDP_ARGB_8888;
-		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_WRITEBACK);
+		mdp4_overlay_panel_mode(MDP4_PANEL_WRITEBACK, pipe->mixer_num);
 		ret = mdp4_overlay_format2pipe(pipe);
 		if (ret < 0)
 			pr_info("%s: format2type failed\n", __func__);
@@ -365,6 +370,12 @@ int mdp4_wfd_pipe_commit(struct msm_fb_data_type *mfd,
 	struct msmfb_writeback_data_list *node = NULL;
 	int rc = 0;
 
+	rc = is_wb_operation_allowed(mfd);
+	if (rc) {
+		pr_debug("%s: Unable to commit, error = %d", __func__, rc);
+		return rc;
+	}
+
 	vctrl = &vsync_ctrl_db[cndx];
 
 	mutex_lock(&vctrl->update_lock);
@@ -431,8 +442,11 @@ int mdp4_wfd_pipe_commit(struct msm_fb_data_type *mfd,
 
 	mdp4_stat.overlay_commit[pipe->mixer_num]++;
 
-	if (wait)
+	if (wait) {
+		mutex_unlock(&vctrl->mfd->dma->ov_mutex);
 		mdp4_wfd_wait4ov(cndx);
+		mutex_lock(&vctrl->mfd->dma->ov_mutex);
+	}
 
 	mdp4_wfd_queue_wakeup(mfd, node);
 
@@ -509,7 +523,7 @@ void mdp4_writeback_overlay(struct msm_fb_data_type *mfd)
 	struct vsycn_ctrl *vctrl;
 	struct mdp4_overlay_pipe *pipe;
 
-	if (mfd && !mfd->panel_power_on)
+	if (!mfd || !mfd->panel_power_on)
 		return;
 
 	pr_debug("%s:+ mfd=%x\n", __func__, (int)mfd);
@@ -553,7 +567,7 @@ static struct msmfb_writeback_data_list *get_if_registered(
 		list_for_each_entry(temp,
 				&mfd->writeback_register_queue,
 				registered_entry) {
-			if (temp && temp->buf_info.iova == data->iova) {
+			if (temp->buf_info.iova == data->iova) {
 				found = true;
 				break;
 			}
@@ -830,7 +844,7 @@ static int mdp4_wfd_dequeue_update(struct msm_fb_data_type *mfd,
 	struct mdp4_overlay_pipe *pipe;
 	struct msmfb_writeback_data_list *node = NULL;
 
-	if (mfd && !mfd->panel_power_on)
+	if (!mfd || !mfd->panel_power_on)
 		return -EPERM;
 
 	pr_debug("%s:+ mfd=%x\n", __func__, (int)mfd);
@@ -884,7 +898,7 @@ static void mdp4_wfd_queue_wakeup(struct msm_fb_data_type *mfd,
 			struct msmfb_writeback_data_list *node)
 {
 
-	if (mfd && !mfd->panel_power_on)
+	if (!mfd || !mfd->panel_power_on)
 		return;
 
 	if (node == NULL)

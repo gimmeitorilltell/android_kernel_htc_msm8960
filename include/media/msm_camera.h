@@ -1,5 +1,5 @@
-/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
- *
+/* Copyright (c) 2009-2013, 2015, The Linux Foundation. All rights reserved.
+*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
@@ -1841,4 +1841,94 @@ struct msm_ver_num_info {
         uint32_t rev;
 };
 
-#endif 
+struct msm_ver_num_info {
+	uint32_t main;
+	uint32_t minor;
+	uint32_t rev;
+};
+
+struct intf_mctl_mapping_cfg {
+	int is_bayer_sensor;
+	int vnode_id;
+	int num_entries;
+	uint32_t image_modes[MSM_V4L2_EXT_CAPTURE_MODE_MAX];
+};
+
+#define VIDIOC_MSM_CPP_CFG \
+	_IOWR('V', BASE_VIDIOC_PRIVATE, struct msm_camera_v4l2_ioctl_t)
+
+#define VIDIOC_MSM_CPP_GET_EVENTPAYLOAD \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct msm_camera_v4l2_ioctl_t)
+
+#define VIDIOC_MSM_CPP_GET_INST_INFO \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 2, struct msm_camera_v4l2_ioctl_t)
+
+#define V4L2_EVENT_CPP_FRAME_DONE  (V4L2_EVENT_PRIVATE_START + 0)
+
+/* Instance Handle - inst_handle
+ * Data bundle containing the information about where
+ * to get a buffer for a particular camera instance.
+ * This is a bitmask containing the following data:
+ * Buffer Handle Bitmask:
+ *      ------------------------------------
+ *      Bits    :  Purpose
+ *      ------------------------------------
+ *      31      :  is Dev ID valid?
+ *      30 - 24 :  Dev ID.
+ *      23      :  is Image mode valid?
+ *      22 - 16 :  Image mode.
+ *      15      :  is MCTL PP inst idx valid?
+ *      14 - 8  :  MCTL PP inst idx.
+ *      7       :  is Video inst idx valid?
+ *      6 - 0   :  Video inst idx.
+ */
+#define CLR_DEVID_MODE(handle)	(handle &= 0x00FFFFFF)
+#define SET_DEVID_MODE(handle, data)	\
+	(handle |= ((0x1 << 31) | ((data & 0x7F) << 24)))
+#define GET_DEVID_MODE(handle)	\
+	((handle & 0x80000000) ? ((handle & 0x7F000000) >> 24) : 0xFF)
+
+#define CLR_IMG_MODE(handle)	(handle &= 0xFF00FFFF)
+#define SET_IMG_MODE(handle, data)	\
+	(handle |= ((0x1 << 23) | ((data & 0x7F) << 16)))
+#define GET_IMG_MODE(handle)	\
+	((handle & 0x800000) ? ((handle & 0x7F0000) >> 16) : 0xFF)
+
+#define CLR_MCTLPP_INST_IDX(handle)	(handle &= 0xFFFF00FF)
+#define SET_MCTLPP_INST_IDX(handle, data)	\
+	(handle |= ((0x1 << 15) | ((data & 0x7F) << 8)))
+#define GET_MCTLPP_INST_IDX(handle)	\
+	((handle & 0x8000) ? ((handle & 0x7F00) >> 8) : 0xFF)
+
+#define CLR_VIDEO_INST_IDX(handle)	(handle &= 0xFFFFFF00)
+#define GET_VIDEO_INST_IDX(handle)	\
+	((handle & 0x80) ? (handle & 0x7F) : 0xFF)
+#define SET_VIDEO_INST_IDX(handle, data)	\
+	(handle |= (0x1 << 7) | (data & 0x7F))
+
+/* ADP Camera defines */
+enum adp_camera_input {
+	ADP_CAM_INPUT_RVC = 0,
+	ADP_CAM_INPUT_LW,
+	ADP_CAM_INPUT_MAX
+};
+
+struct adp_display_recovery {
+	uint32_t err_type;
+	uint32_t display_id;
+	uint32_t ack_type;
+};
+
+#define ADP_CAMERA_EVENT_ERROR            (V4L2_EVENT_PRIVATE_START+1)
+#define ADP_CAMERA_EVENT_RECOVERY_SUCCESS (V4L2_EVENT_PRIVATE_START+2)
+#define ADP_CAMERA_EVENT_RECOVERY_FAILED  (V4L2_EVENT_PRIVATE_START+3)
+#define ADP_CAMERA_EVENT_RECOVERY_ABORTED (V4L2_EVENT_PRIVATE_START+4)
+#define ADP_DISPLAY_EVENT_ERROR_RECOVERY  (V4L2_EVENT_PRIVATE_START+5)
+
+#define ADP_CAMERA_V4L2_CID_DISPLAY_RECOVERY \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct adp_display_recovery)
+
+#define ADP_CAMERA_V4L2_CID_Z_ORDER ((V4L2_CID_USER_BASE | 0x7000)+1)
+#define ADP_CAMERA_V4L2_CID_DISPLAY_ID ((V4L2_CID_USER_BASE | 0x7000)+2)
+
+#endif /* __LINUX_MSM_CAMERA_H */

@@ -746,9 +746,9 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	mnt->mnt.mnt_root = dget(root);
 	mnt->mnt_mountpoint = mnt->mnt.mnt_root;
 	mnt->mnt_parent = mnt;
-	br_write_lock(&vfsmount_lock);
+	br_write_lock(vfsmount_lock);
 	list_add_tail(&mnt->mnt_instance, &sb->s_mounts);
-	br_write_unlock(&vfsmount_lock);
+	br_write_unlock(vfsmount_lock);
 
 	if ((flag & CL_SLAVE) ||
 	    ((flag & CL_SHARED_TO_SLAVE) && IS_MNT_SHARED(old))) {
@@ -1312,7 +1312,7 @@ struct mount *copy_tree(struct mount *mnt, struct dentry *dentry,
 			q = clone_mnt(p, p->mnt.mnt_root, flag);
 			if (IS_ERR(q))
 				goto out;
-			br_write_lock(&vfsmount_lock);
+			br_write_lock(vfsmount_lock);
 			list_add_tail(&q->mnt_list, &res->mnt_list);
 			attach_mnt(q, &path);
 			br_write_unlock(&vfsmount_lock);
@@ -1628,7 +1628,7 @@ static int do_loopback(struct path *path, const char *old_name,
 
 	err = -EINVAL;
 	if (mnt_ns_loop(&old_path))
-		goto out; 
+		goto out;
 
 	err = lock_mount(path);
 	if (err)
@@ -2746,7 +2746,7 @@ static int mntns_install(struct nsproxy *nsproxy, void *ns)
 	root.mnt    = &mnt_ns->root->mnt;
 	root.dentry = mnt_ns->root->mnt.mnt_root;
 	path_get(&root);
-	while(d_mountpoint(root.dentry) && follow_down_one(&root))
+	while (d_mountpoint(root.dentry) && follow_down_one(&root))
 		;
 
 	/* Update the pwd and root */

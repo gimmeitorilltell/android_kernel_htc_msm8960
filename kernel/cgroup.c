@@ -289,7 +289,7 @@ static void check_for_release(struct cgroup *cgrp);
 
 /*
  * A queue for waiters to do rmdir() cgroup. A tasks will sleep when
- * cgroup->count == 0 && list_empty(&cgroup->children) && subsys has some
+ * list_empty(&cgroup->children) && subsys has some
  * reference to css->refcnt. In general, this refcnt is expected to goes down
  * to zero, soon.
  *
@@ -385,20 +385,10 @@ static void free_css_set_work(struct work_struct *work)
 		struct cgroup *cgrp = link->cgrp;
 		list_del(&link->cg_link_list);
 		list_del(&link->cgrp_link_list);
-
-		/*
-		 * We may not be holding cgroup_mutex, and if cgrp->count is
-		 * dropped to 0 the cgroup can be destroyed at any time, hence
-		 * rcu_read_lock is used to keep it alive.
-		 */
-		rcu_read_lock();
 		if (atomic_dec_and_test(&cgrp->count)) {
-
 			check_for_release(cgrp);
 			cgroup_wakeup_rmdir_waiter(cgrp);
 		}
-		rcu_read_unlock();
-
 		kfree(link);
 	}
 	write_unlock(&css_set_lock);
@@ -3936,6 +3926,10 @@ static int cgroup_clear_css_refs(struct cgroup *cgrp)
 	struct cgroup_subsys *ss;
 	unsigned long flags;
 	bool failed = false;
+
+	if (atomic_read(&cgrp->count) != 0)
+		return false;
+
 	local_irq_save(flags);
 	for_each_subsys(cgrp->root, ss) {
 		struct cgroup_subsys_state *css = cgrp->subsys[ss->subsys_id];

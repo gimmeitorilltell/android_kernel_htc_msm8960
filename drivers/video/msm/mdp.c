@@ -2,7 +2,7 @@
  *
  * MSM MDP Interface (used by framebuffer core)
  *
- * Copyright (c) 2007-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2007-2016, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -43,6 +43,9 @@
 #include "mdp4.h"
 #endif
 #include "mipi_dsi.h"
+#include <mach/iommu_domains.h>
+#include <linux/iommu.h>
+
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #undef CONFIG_HAS_EARLYSUSPEND
@@ -174,6 +177,12 @@ static uint32 mdp_prim_panel_type = NO_PANEL;
 struct list_head mdp_hist_lut_list;
 DEFINE_MUTEX(mdp_hist_lut_list_mutex);
 uint32_t last_lut[MDP_HIST_LUT_SIZE];
+
+static int mdp_on_init_cnt;
+static int mdp_resource_initialized;
+static struct msm_panel_common_pdata *mdp_pdata;
+
+uint32 mdp_hw_revision;
 
 uint32_t mdp_block2base(uint32_t block)
 {
@@ -1569,6 +1578,376 @@ u32 mdp_get_panel_framerate(struct msm_fb_data_type *mfd)
 	return frame_rate;
 }
 
+static void mdp_disable_lvds(void)
+{
+	MDP_OUTP(MDP_BASE + 0xC0000, 0);
+}
+
+static void mdp_enable_lvds(void)
+{
+	MDP_OUTP(MDP_BASE + 0xC0000, 1);
+}
+
+static void mdp_disable_dtv(void)
+{
+	MDP_OUTP(MDP_BASE + 0xD0000, 0);
+}
+
+static void mdp_enable_dtv(void)
+{
+	MDP_OUTP(MDP_BASE + 0xD0000, 1);
+}
+
+static void mdp_disable_dsi_video(void)
+{
+	MDP_OUTP(MDP_BASE + 0xE0000, 0);
+}
+
+static void mdp_enable_dsi_video(void)
+{
+	MDP_OUTP(MDP_BASE + 0xE0000, 1);
+}
+
+static int mdp_misr_setup(uint32_t type)
+{
+	int ret = 0;
+
+	switch (type) {
+	case LCDC_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_PCLK);
+		MDP_OUTP(MDP_BASE + 0xF0200, MDP_TEST_MODE_DCLK_LCDC1);
+		break;
+	case LVDS_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_PCLK);
+		MDP_OUTP(MDP_BASE + 0xF0200, MDP_TEST_MODE_DCLK_LCDC2);
+		break;
+	case TV_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_TV_CLK);
+		MDP_OUTP(MDP_BASE + 0xF0300, MDP_TEST_MODE_TVCLK_ATV);
+		break;
+	case DTV_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_TV_CLK);
+		MDP_OUTP(MDP_BASE + 0xF0300, MDP_TEST_MODE_TVCLK_DTV1);
+		break;
+	case MIPI_VIDEO_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_PCLK);
+		MDP_OUTP(MDP_BASE + 0xF0400, MDP_TEST_MODE_DSI_PCLK_DSI_VIDEO1);
+		break;
+	case MIPI_CMD_PANEL:
+		MDP_OUTP(MDP_BASE + 0x0044, MDP_SEL_TEST_BUS_CLK_DOMAIN_PCLK);
+		MDP_OUTP(MDP_BASE + 0xF0400, MDP_TEST_MODE_DSI_PCLK_DSI_CMD);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+static int mdp_misr_reset(uint32_t type)
+{
+	int ret = 0;
+
+	switch (type) {
+	case LCDC_PANEL:
+	case LVDS_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0204, MDP_TEST_MISR_SW_RESET);
+		break;
+	case TV_PANEL:
+	case DTV_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0304, MDP_TEST_MISR_SW_RESET);
+		break;
+	case MIPI_VIDEO_PANEL:
+	case MIPI_CMD_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0404, MDP_TEST_MISR_SW_RESET);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+static int mdp_misr_read(uint32_t type, uint32_t *value)
+{
+	int ret = 0;
+
+	if (NULL == value) {
+		ret = -EINVAL;
+	} else {
+		switch (type) {
+		case LCDC_PANEL:
+		case LVDS_PANEL:
+			*value = inpdw(MDP_BASE + 0xF020C);
+			break;
+		case TV_PANEL:
+		case DTV_PANEL:
+			*value = inpdw(MDP_BASE + 0xF030C);
+			break;
+		case MIPI_VIDEO_PANEL:
+		case MIPI_CMD_PANEL:
+			*value = inpdw(MDP_BASE + 0xF040C);
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static int mdp_misr_set_frame_count(uint32_t type)
+{
+	int ret = 0;
+
+	switch (type) {
+	case LCDC_PANEL:
+	case LVDS_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0210, MDP_TEST_CAPTURE_FRAME_COUNT_MASK);
+		break;
+	case TV_PANEL:
+	case DTV_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0310, MDP_TEST_CAPTURE_FRAME_COUNT_MASK);
+		break;
+	case MIPI_VIDEO_PANEL:
+	case MIPI_CMD_PANEL:
+		MDP_OUTP(MDP_BASE + 0xF0410, MDP_TEST_CAPTURE_FRAME_COUNT_MASK);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+static int mdp_misr_get_capture_status(uint32_t type)
+{
+	int status = 0;
+
+	switch (type) {
+	case LCDC_PANEL:
+	case LVDS_PANEL:
+		status = inpdw(MDP_BASE + 0xF0210) & MDP_TEST_CAPTURED_MASK;
+		break;
+	case TV_PANEL:
+	case DTV_PANEL:
+		status = inpdw(MDP_BASE + 0xF0310) & MDP_TEST_CAPTURED_MASK;
+		break;
+	case MIPI_VIDEO_PANEL:
+	case MIPI_CMD_PANEL:
+		status = inpdw(MDP_BASE + 0xF0410) & MDP_TEST_CAPTURED_MASK;
+		break;
+	default:
+		status = 0;
+		break;
+	}
+
+	return status;
+}
+
+static int mdp_misr_read_captured(uint32_t type, uint32_t *value)
+{
+	int ret = 0;
+	if (NULL == value) {
+		ret = -EINVAL;
+	} else {
+		switch (type) {
+		case LCDC_PANEL:
+		case LVDS_PANEL:
+			*value = inpdw(MDP_BASE + 0xF0214);
+			break;
+		case TV_PANEL:
+		case DTV_PANEL:
+			*value = inpdw(MDP_BASE + 0xF0314);
+			break;
+		case MIPI_VIDEO_PANEL:
+		case MIPI_CMD_PANEL:
+			*value = inpdw(MDP_BASE + 0xF0414);
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+		}
+	}
+	if (value)
+		pr_debug("%s panel type = %d, crc = %08X\n",
+				__func__, type, *value);
+	return ret;
+}
+
+int mdp_misr_get(struct msm_fb_data_type *mfd, uint32_t *crc)
+{
+	int ret = 0;
+	uint32_t value = 0;
+	int retry = 0;
+	int status;
+
+	if (!mfd || !crc) {
+		pr_err("%s misr parameter error!\n", __func__);
+		return -EINVAL;
+	}
+
+	mdp_clk_ctrl(1);
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+	ret = mdp_misr_setup(mfd->panel_info.type);
+	if (ret) {
+		pr_err("%s setup misr failed!\n", __func__);
+		goto out;
+	}
+	ret = mdp_misr_reset(mfd->panel_info.type);
+	if (ret) {
+		pr_err("%s reset misr failed!\n", __func__);
+		goto out;
+	}
+
+	switch (mfd->panel_info.type) {
+	case LVDS_PANEL:
+		mdp_disable_lvds();
+		/* Wait for frame completion */
+		msleep(mfd->panel_info.frame_interval + 2);
+		mdp_misr_set_frame_count(LVDS_PANEL);
+		mdp_misr_reset(LVDS_PANEL);
+		mdp_enable_lvds();
+		/* Need delay between ON and OFF */
+		msleep(mfd->panel_info.frame_interval << 1);
+		mdp_disable_lvds();
+		/* wait for 1 frame time to ensure engine is off */
+		msleep(mfd->panel_info.frame_interval + 2);
+		/*
+		 * Power OFF the display. This is required for LVDS to disable
+		 * the clock lanes, only after which there is an updated MISR
+		 */
+		panel_next_off(mfd->pdev);
+		/* Read MISR value */
+		status = mdp_misr_get_capture_status(LVDS_PANEL);
+		while (!status && retry < MAX_RETRIES_CRC_CAPTURE) {
+			msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+			status = mdp_misr_get_capture_status(LVDS_PANEL);
+			retry++;
+		}
+		if (MAX_RETRIES_CRC_CAPTURE == retry) {
+			pr_err("%s capture crc failed!\n", __func__);
+			ret = -EINVAL;
+		} else {
+			ret = mdp_misr_read_captured(LVDS_PANEL, &value);
+		}
+		panel_next_on(mfd->pdev);
+		mdp_enable_lvds();
+		break;
+	case DTV_PANEL:
+		if (mdp_rev == MDP_REV_44 || mdp_rev == MDP_REV_43) {
+			mdp_disable_dtv();
+			/* Wait for frame completion and add 2 ms extra time. */
+			msleep(mfd->panel_info.frame_interval + 2);
+			mdp_misr_set_frame_count(DTV_PANEL);
+			mdp_misr_reset(DTV_PANEL);
+			mdp_enable_dtv();
+			/* Need delay ~10 PCLK between DTV ON and OFF. */
+			msleep(mfd->panel_info.frame_interval);
+			mdp_disable_dtv();
+			/* Wait for frame completion and add 2 ms extra time. */
+			msleep(mfd->panel_info.frame_interval + 2);
+			/* Read MISR value */
+			status = mdp_misr_get_capture_status(DTV_PANEL);
+			while (!status && retry < MAX_RETRIES_CRC_CAPTURE) {
+				msleep(mfd->panel_info.frame_interval);
+				status = mdp_misr_get_capture_status(DTV_PANEL);
+				retry++;
+			}
+			if (MAX_RETRIES_CRC_CAPTURE == retry) {
+				pr_err("%s capture crc failed!\n", __func__);
+				ret = -EINVAL;
+			} else {
+				ret = mdp_misr_read_captured(DTV_PANEL, &value);
+			}
+			mdp_enable_dtv();
+		} else if (mdp_rev == MDP_REV_42 || mdp_rev == MDP_REV_41) {
+			mdp_disable_dtv();
+			/* Wait for frame completion and add 2 ms extra time. */
+			msleep(mfd->panel_info.frame_interval + 2);
+			mdp_misr_reset(DTV_PANEL);
+			mdp_enable_dtv();
+			/* Need delay ~10 PCLK between DTV ON and OFF. */
+			msleep(mfd->panel_info.frame_interval >> 1);
+			mdp_disable_dtv();
+			/* Wait for frame completion and add 2 ms extra time. */
+			msleep(mfd->panel_info.frame_interval + 2);
+			ret = mdp_misr_read(DTV_PANEL, &value);
+			mdp_enable_dtv();
+		} else {
+			pr_err("%s HW ver=%d NOT SUPPORTED for panel type=%u\n",
+				__func__, mdp_rev, mfd->panel_info.type);
+			ret = -EINVAL;
+		}
+		break;
+	case MIPI_VIDEO_PANEL:
+		if (mdp_rev == MDP_REV_44 || mdp_rev == MDP_REV_43) {
+			mdp_disable_dsi_video();
+			/* Wait for frame completion */
+			msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+			mdp_misr_set_frame_count(MIPI_VIDEO_PANEL);
+			mdp_misr_reset(MIPI_VIDEO_PANEL);
+			panel_next_off(mfd->pdev);
+			panel_next_on(mfd->pdev);
+			mdp_enable_dsi_video();
+			mdp_disable_dsi_video();
+			/* Wait for frame completion */
+			msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+			/* Read MISR value */
+			status = mdp_misr_get_capture_status(MIPI_VIDEO_PANEL);
+			while (!status && retry < MAX_RETRIES_CRC_CAPTURE) {
+				msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+				status = mdp_misr_get_capture_status(
+						MIPI_VIDEO_PANEL);
+				retry++;
+			}
+			if (MAX_RETRIES_CRC_CAPTURE == retry) {
+				pr_err("%s capture crc failed!\n", __func__);
+				ret = -EINVAL;
+			} else {
+				ret = mdp_misr_read_captured(MIPI_VIDEO_PANEL,
+						&value);
+			}
+			panel_next_off(mfd->pdev);
+			panel_next_on(mfd->pdev);
+			mdp_enable_dsi_video();
+		} else {
+			mdp_disable_dsi_video();
+			/* Wait for frame completion */
+			msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+			mdp_misr_reset(MIPI_VIDEO_PANEL);
+			mdp_misr_read(MIPI_VIDEO_PANEL, &value);
+			panel_next_off(mfd->pdev);
+			panel_next_on(mfd->pdev);
+			mdp_enable_dsi_video();
+			mdp_disable_dsi_video();
+			/* Wait for frame completion */
+			msleep(MISR_MAX_ONE_FRAME_TIME_WAIT);
+			ret = mdp_misr_read(MIPI_VIDEO_PANEL, &value);
+			panel_next_off(mfd->pdev);
+			panel_next_on(mfd->pdev);
+			mdp_enable_dsi_video();
+		}
+		break;
+	default:
+		pr_err("%s Panel type %d MISR Not supported!\n",
+			__func__, mfd->panel_info.type);
+		ret = -EINVAL;
+		break;
+	}
+
+out:
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	mdp_clk_ctrl(0);
+	*crc = value;
+	return ret;
+}
+
 static int mdp_diff_to_next_vsync(ktime_t cur_time,
 			ktime_t last_vsync, u32 vsync_period)
 {
@@ -2168,7 +2547,7 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 
 		/* DMA_E LCD-Out Complete */
 		if (mdp_interrupt & MDP_DMA_E_DONE) {
-			dma = &dma_s_data;
+			dma = &dma_e_data;
 			dma->busy = FALSE;
 			mdp_pipe_ctrl(MDP_DMA_E_BLOCK, MDP_BLOCK_POWER_OFF,
 									TRUE);
@@ -2265,9 +2644,10 @@ static void mdp_drv_init(void)
 
 	dma_s_data.busy = FALSE;
 	dma_s_data.waiting = FALSE;
+	dma_s_data.dmap_busy = FALSE;
 	init_completion(&dma_s_data.comp);
 	sema_init(&dma_s_data.mutex, 1);
-
+	mutex_init(&dma_s_data.ov_mutex);
 #ifndef CONFIG_FB_MSM_MDP303
 	dma_e_data.busy = FALSE;
 	dma_e_data.waiting = FALSE;
@@ -2325,6 +2705,9 @@ static void mdp_drv_init(void)
 		}
 	}
 #endif
+
+	mdp_recovery_initialize();
+
 }
 
 static int mdp_probe(struct platform_device *pdev);
@@ -2372,19 +2755,136 @@ static int mdp_fps_level_change(struct platform_device *pdev, u32 fps_level)
 	ret = panel_next_fps_level_change(pdev, fps_level);
 	return ret;
 }
+
+static int mdp_map_splash_buffer(struct msm_fb_data_type *mfd, int layer_id)
+{
+	int rc = 0;
+	int base = 0x20000;
+	int size_off = base + 0x10000 * layer_id;
+	int phys_off = base + 0x10000 * layer_id + 0x10;
+	int stride_off = base + 0x10000 * layer_id + 0x40;
+	int stride = 0;
+	struct iommu_domain *domain = NULL;
+
+	if (layer_id == OVERLAY_PIPE_DMAS) {
+		base = 0xA0000;
+		size_off = base + 0x04;
+		phys_off = base + 0x08;
+		stride_off = base + 0x0C;
+	} else if (layer_id >= OVERLAY_PIPE_RGB3) {
+		pr_err("%s,%d: not support layer id=%d\n",
+			__func__, __LINE__, layer_id);
+		rc = -ENODEV;
+		goto error;
+	}
+	mfd->splash_screen_size[layer_id] = inpdw(MDP_BASE + size_off);
+	stride = inpdw(MDP_BASE + stride_off) & 0x00007FFF;
+	mfd->splash_screen_size[layer_id] =
+			((mfd->splash_screen_size[layer_id] >> 16) &
+			0x00000FFF) * stride;
+
+	/* Aglined with 4K */
+	mfd->splash_screen_size[layer_id] =
+		(mfd->splash_screen_size[layer_id] + 0xFFF) & (~0xFFF);
+	mfd->splash_screen_phys[layer_id] = inpdw(MDP_BASE + phys_off);
+	if (mfd->splash_screen_phys[layer_id] & 0xFFF)
+		pr_warn("%s splash screen phys=0x%08x is not aligned with 4K " \
+			"layer_id=%d, size=%d", __func__,
+			(int)mfd->splash_screen_phys[layer_id], layer_id,
+			mfd->splash_screen_size[layer_id]);
+
+	domain = msm_get_iommu_domain(DISPLAY_READ_DOMAIN);
+	if (domain) {
+		rc = iommu_map(domain,
+				mfd->splash_screen_phys[layer_id],
+				mfd->splash_screen_phys[layer_id],
+				mfd->splash_screen_size[layer_id],
+				IOMMU_READ);
+		if (rc)
+			pr_err("%s,%d: iommu_map, id=%d ret = %d\n",
+				__func__, __LINE__, layer_id, rc);
+
+	} else {
+		pr_err("%s,%d: iommu get domain failed\n", __func__, __LINE__);
+		rc = -ENODEV;
+	}
+
+error:
+	return rc;
+}
+
+static int mdp_unmap_splash_buffer(struct msm_fb_data_type *mfd, int layer_id)
+{
+	int rc = 0;
+	size_t size = 0;
+	struct iommu_domain *domain = NULL;
+
+	domain = msm_get_iommu_domain(DISPLAY_READ_DOMAIN);
+	if (domain && mfd->splash_screen_phys[layer_id]) {
+		size = iommu_unmap(domain,
+				mfd->splash_screen_phys[layer_id],
+				mfd->splash_screen_size[layer_id]);
+		if (size != mfd->splash_screen_size[layer_id])
+			pr_err("%s,%d: iommu_unmap, id=%d size = %d[%d]\n",
+				__func__, __LINE__, layer_id, size,
+				mfd->splash_screen_size[layer_id]);
+	} else {
+		pr_err("%s,%d: iommu get domain failed\n", __func__, __LINE__);
+		rc = -ENODEV;
+	}
+	return rc;
+}
+
+int mdp_disable_splash(struct msm_fb_data_type *mfd)
+{
+	int rc = 0;
+	int i = 0;
+
+	if (!mfd) {
+		pr_err("%s mfd is NULL", __func__);
+		rc = -ENODEV;
+	} else {
+		if (!mfd->cont_splash_done) {
+			for (i = OVERLAY_PIPE_VG1; i < OVERLAY_PIPE_MAX; i++)
+				if (mfd->splash_screen_phys[i])
+					mdp_unmap_splash_buffer(mfd, i);
+
+			/* Clks are enabled in probe. Disabling clocks now */
+			mdp_clk_ctrl(0);
+			mfd->cont_splash_done = 1;
+		}
+
+		if (mdp_pdata->cont_splash_enabled)
+			mdp_pdata->cont_splash_enabled--;
+	}
+
+	return rc;
+}
+
 static int mdp_off(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
 
-	pr_debug("%s:+\n", __func__);
-	mdp_histogram_ctrl_all(FALSE);
+	pr_debug("%s:+ type=%d\n", __func__, mfd->panel.type);
 	atomic_set(&vsync_cntrl.suspend, 1);
 	atomic_set(&vsync_cntrl.vsync_resume, 0);
 	complete_all(&vsync_cntrl.vsync_wait);
 
 	mdp_clk_ctrl(1);
-	mdp_lut_status_backup();
+
+	if (mdp_on_init_cnt) {
+		mdp_on_init_cnt--;
+		if (!mdp_on_init_cnt) {
+			mdp_histogram_ctrl_all(FALSE);
+			mdp_lut_status_backup();
+		}
+	} else {
+		pr_err("mdp was not initialized\n");
+		mdp_clk_ctrl(0);
+		return ret;
+	}
+
 	ret = panel_next_early_off(pdev);
 
 	if (mfd->panel.type == MIPI_CMD_PANEL)
@@ -2406,7 +2906,7 @@ static int mdp_off(struct platform_device *pdev)
 #ifdef CONFIG_MSM_BUS_SCALING
 	mdp_bus_scale_update_request(0, 0, 0, 0);
 #endif
-	pr_debug("%s:-\n", __func__);
+	pr_debug("%s:- type=%d\n", __func__, mfd->panel.type);
 	return ret;
 }
 
@@ -2431,21 +2931,16 @@ static int mdp_on(struct platform_device *pdev)
 	int i;
 	mfd = platform_get_drvdata(pdev);
 
-	pr_debug("%s:+\n", __func__);
+	pr_debug("%s:+ type=%d\n", __func__, mfd->panel.type);
 
-	if (!(mfd->cont_splash_done)) {
-		if (mfd->panel.type == MIPI_VIDEO_PANEL)
-			mdp4_dsi_video_splash_done();
-
-		/* Clks are enabled in probe.
-		Disabling clocks now */
-		mdp_clk_ctrl(0);
-		mfd->cont_splash_done = 1;
+	if (mdp_pdata == NULL) {
+		pr_err("%s,%d mdp_pdata is NULL", __func__, __LINE__);
+		return -ENODEV;
 	}
 
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	if(mfd->index == 0)
 		mdp_iommu_max_map_size = mfd->max_map_size;
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	ret = panel_next_on(pdev);
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -2455,16 +2950,19 @@ static int mdp_on(struct platform_device *pdev)
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		mdp_clk_ctrl(1);
 		mdp_bus_scale_restore_request();
-		mdp4_hw_init();
 
-		/* Initialize HistLUT to last LUT */
-		for (i = 0; i < MDP_HIST_LUT_SIZE; i++) {
-			MDP_OUTP(MDP_BASE + 0x94800 + i*4, last_lut[i]);
-			MDP_OUTP(MDP_BASE + 0x94C00 + i*4, last_lut[i]);
+		if (!mdp_on_init_cnt) {
+			mdp4_hw_init();
+			/* Initialize HistLUT to last LUT */
+			for (i = 0; i < MDP_HIST_LUT_SIZE; i++) {
+				MDP_OUTP(MDP_BASE + 0x94800 + i*4, last_lut[i]);
+				MDP_OUTP(MDP_BASE + 0x94C00 + i*4, last_lut[i]);
+			}
+			mdp_lut_status_restore();
+			outpdw(MDP_BASE + 0x0038, mdp4_display_intf);
 		}
+		mdp_on_init_cnt++;
 
-		mdp_lut_status_restore();
-		outpdw(MDP_BASE + 0x0038, mdp4_display_intf);
 		if (mfd->panel.type == MIPI_CMD_PANEL) {
 			mdp_vsync_cfg_regs(mfd, FALSE);
 			mdp4_dsi_cmd_on(pdev);
@@ -2476,6 +2974,8 @@ static int mdp_on(struct platform_device *pdev)
 			mdp4_lcdc_on(pdev);
 		}
 
+		/* Disable splash */
+		mdp_disable_splash(mfd);
 		mdp_clk_ctrl(0);
 		mdp4_overlay_reset();
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -2492,15 +2992,10 @@ static int mdp_on(struct platform_device *pdev)
 	if (ret == 0)
 		ret = panel_next_late_init(pdev);
 
-	pr_debug("%s:-\n", __func__);
+	pr_debug("%s:- type=%d\n", __func__, mfd->panel.type);
 
 	return ret;
 }
-
-static int mdp_resource_initialized;
-static struct msm_panel_common_pdata *mdp_pdata;
-
-uint32 mdp_hw_revision;
 
 /*
  * mdp_hw_revision:
@@ -2536,6 +3031,578 @@ void mdp_hw_version(void)
 
 	MSM_FB_DEBUG("%s: mdp_hw_revision=%x\n",
 				__func__, mdp_hw_revision);
+}
+
+#define MDP_RECOVERY_MAX_DISPLAY_NUM   (3)
+#define MDP_RECOVERY_ACK_TIMEOUT       (1 * HZ)
+#define MDP_RECOVERY_MAX_RETRY         (5)
+#define MDP_RECOVERY_MAX_RETRY_TIMEOUT (2 * HZ)
+
+struct mdp_recovery_data {
+	enum mdp_recovery_error_type error_type;
+	int display_id;
+	boolean error_state;
+	struct work_struct recovery_work;
+	struct timer_list ack_timer;
+	uint32 total_ack;
+	uint32 ack_count;
+	enum mdp_recovery_ack_type ack_type;
+	boolean waiting_ack;
+	uint32 retry_count;
+	struct timer_list retry_timer;
+	void *err_src_data;
+};
+
+struct mdp_recovery_client_info {
+	struct mdp_recovery_client_register_info register_info;
+	struct list_head list;
+};
+
+struct mdp_recovery_ctx {
+	struct list_head client_list;
+	struct workqueue_struct *work_queue;
+	struct mutex cli_mutex;
+	struct mutex ack_mutex;
+	struct mdp_recovery_data data
+		[MDP_RECOVERY_MAX_DISPLAY_NUM][MDP_RECOVERY_MAX_ERROR_TYPES];
+	int debug_flag;
+};
+
+static struct mdp_recovery_ctx *recovery_ctx;
+static boolean recovery_initialized;
+
+static int mdp_panel_error_cb(struct platform_device *pdev);
+static struct platform_device *mdp_get_dev(int display_id);
+static void mdp_recovery_process_ack(struct mdp_recovery_data *data);
+static boolean mdp_recovery_do(struct mdp_recovery_data *data);
+static int mdp_recovery_engine_reset(struct platform_device *pdev);
+static void mdp_recovery_work_handler(struct work_struct *work);
+static void mdp_recovery_retry_timer_handler(unsigned long param);
+static void mdp_recovery_ack_timer_handler(unsigned long param);
+static void mdp_recovery_send_notification(int display_id,
+				enum mdp_recovery_error_type err_type,
+				enum mdp_recovery_status_type status);
+static uint32 mdp_recovery_get_ack_num(int display_id,
+				enum mdp_recovery_error_type err_type);
+
+static int mdp_panel_error_cb(struct platform_device *pdev)
+{
+	int rc = 0;
+	struct msm_fb_panel_data *pdata = NULL;
+	if (!pdev) {
+		pr_err("%s NULL pointer: pdev", __func__);
+		return -ENODEV;
+	}
+	pdata = (struct msm_fb_panel_data *)pdev->dev.platform_data;
+	if (!pdata) {
+		pr_err("%s NULL pointer: pdata", __func__);
+		return -ENODEV;
+	}
+	rc = mdp_recovery_set_error(pdata->panel_info.disp_id,
+				MDP_RECOVERY_BRIDGE_CHIP_ERROR);
+	return rc;
+}
+
+static struct platform_device *mdp_get_dev(int display_id)
+{
+	struct platform_device *pdev = NULL;
+	struct msm_fb_panel_data *pdata = NULL;
+	int i = 0;
+	if ((display_id < 0) || (display_id >= MDP_RECOVERY_MAX_DISPLAY_NUM)) {
+		pr_err("%s invalid param: display_id=%d", __func__, display_id);
+		return NULL;
+	}
+	for (i = 0; i < pdev_list_cnt; i++) {
+		pdev = pdev_list[i];
+		if (pdev) {
+			pdata = (struct msm_fb_panel_data *)
+					pdev->dev.platform_data;
+			if (pdata && (pdata->panel_info.disp_id == display_id))
+				return pdev;
+		}
+	}
+	return NULL;
+}
+
+int mdp_recovery_initialize(void)
+{
+	int rc = 0;
+	if (recovery_initialized) {
+		pr_err("%s already initialized!", __func__);
+		rc = -EEXIST;
+		goto out;
+	}
+	recovery_ctx = kzalloc(sizeof(struct mdp_recovery_ctx), GFP_KERNEL);
+	if (!recovery_ctx) {
+		pr_err("%s out of memory!", __func__);
+		rc = -ENOMEM;
+		goto out;
+	}
+	mutex_init(&recovery_ctx->cli_mutex);
+	mutex_init(&recovery_ctx->ack_mutex);
+	memset(recovery_ctx->data, 0, sizeof(recovery_ctx->data));
+	INIT_LIST_HEAD(&recovery_ctx->client_list);
+	recovery_ctx->work_queue =
+		create_singlethread_workqueue("mdp_recovery");
+	if (IS_ERR_OR_NULL(recovery_ctx->work_queue)) {
+		pr_err("%s unable to create work queue; errno = %ld",
+			__func__, PTR_ERR(recovery_ctx->work_queue));
+		recovery_ctx->work_queue = NULL;
+		kfree(recovery_ctx);
+		recovery_ctx = NULL;
+		rc = -EFAULT;
+		goto out;
+	}
+	recovery_ctx->debug_flag = 0;
+	recovery_initialized = true;
+out:
+	return rc;
+}
+
+int mdp_recovery_register(struct mdp_recovery_client_register_info *info,
+			void **handle)
+{
+	struct mdp_recovery_client_info *c = NULL;
+	struct list_head *pos = NULL;
+	boolean found = false;
+	int rc = 0;
+
+	if (!recovery_initialized) {
+		pr_err("%s: Not initialized!", __func__);
+		return -ENODEV;
+	}
+	if (!info || !handle) {
+		pr_err("%s invalid parameters: NULL pointer!", __func__);
+		return -EINVAL;
+	}
+	if (info->cb == NULL) {
+		pr_err("%s no callback function!", __func__);
+		return -EINVAL;
+	}
+	mutex_lock(&recovery_ctx->cli_mutex);
+	list_for_each(pos, &recovery_ctx->client_list) {
+		c = list_entry(pos, struct mdp_recovery_client_info, list);
+		if (c == *handle) {
+			found = true;
+			break;
+		}
+	}
+	if (found) {
+		pr_err("%s client already registered!", __func__);
+		rc = -EFAULT;
+		goto out;
+	}
+	c = kzalloc(sizeof(struct mdp_recovery_client_info), GFP_KERNEL);
+	if (!c) {
+		pr_err("%s out of memory for client", __func__);
+		rc = -ENOMEM;
+		goto out;
+	}
+	memcpy(&c->register_info, info,
+		sizeof(struct mdp_recovery_client_register_info));
+	list_add_tail(&c->list, &recovery_ctx->client_list);
+	*handle = c;
+out:
+	mutex_unlock(&recovery_ctx->cli_mutex);
+	return rc;
+}
+
+int mdp_recovery_deregister(void *handle)
+{
+	struct list_head *pos = NULL, *q = NULL;
+	struct mdp_recovery_client_info *temp = NULL;
+	boolean found = false;
+	int rc = 0;
+
+	if (!recovery_initialized) {
+		pr_err("%s: Not initialized!", __func__);
+		return -ENODEV;
+	}
+	if (!handle) {
+		pr_err("%s invalid handle!", __func__);
+		return -EINVAL;
+	}
+	mutex_lock(&recovery_ctx->cli_mutex);
+	list_for_each_safe(pos, q, &recovery_ctx->client_list) {
+		temp = list_entry(pos, struct mdp_recovery_client_info, list);
+		if (temp == handle) {
+			found = true;
+			list_del(pos);
+			kfree(temp);
+			break;
+		}
+	}
+	if (!found) {
+		pr_err("%s can't find the client", __func__);
+		rc = -EFAULT;
+	}
+	mutex_unlock(&recovery_ctx->cli_mutex);
+	return rc;
+}
+
+int mdp_recovery_set_error(int display_id,
+			enum mdp_recovery_error_type err_type)
+{
+	struct mdp_recovery_data *data = NULL;
+	struct platform_device *pdev = NULL;
+
+	if (!recovery_initialized) {
+		pr_err("%s: Not initialized!", __func__);
+		return -ENODEV;
+	}
+	if ((display_id < 0) || (display_id >= MDP_RECOVERY_MAX_DISPLAY_NUM) ||
+	    (err_type < 0) || (err_type >= MDP_RECOVERY_MAX_ERROR_TYPES)) {
+		pr_err("%s invalid params: display_id=%d, err_type=%d",
+			__func__, display_id, err_type);
+		return -EINVAL;
+	}
+	pdev = mdp_get_dev(display_id);
+	if (!pdev) {
+		pr_err("%s cannot find device for display_id=%d",
+			__func__, display_id);
+		return -ENODEV;
+	}
+	data = &recovery_ctx->data[display_id][err_type];
+	if (data->error_state) {
+		pr_err("%s error state is already set. disp_id=%d, err_type=%d",
+			__func__, display_id, err_type);
+		return -EFAULT;
+	}
+	pr_info("%s Error detected: display_id=%d, err_type=%d", __func__,
+			display_id, err_type);
+	/* Note: DO NOT clear retry_timer and retry_count here. */
+	data->error_state = true;
+	data->error_type = err_type;
+	data->display_id = display_id;
+	data->err_src_data = pdev;
+
+	mutex_lock(&recovery_ctx->ack_mutex);
+	data->ack_count = 0;
+	data->ack_type = MDP_RECOVERY_ACK_IGNORE;
+	data->total_ack = mdp_recovery_get_ack_num(display_id, err_type);
+	if (data->total_ack == 0) {
+		pr_info("%s No clients subscribe this error. disp_id=%d," \
+			" err_type=%d", __func__, display_id, err_type);
+		data->error_state = false;
+		goto out;
+	}
+	data->waiting_ack = true;
+	mutex_unlock(&recovery_ctx->ack_mutex);
+	/* send notification */
+	mdp_recovery_send_notification(display_id, err_type,
+						MDP_RECOVERY_ERROR_DETECTED);
+	mutex_lock(&recovery_ctx->ack_mutex);
+	if (data->ack_count < data->total_ack) {
+		/* start the ack timer */
+		init_timer(&data->ack_timer);
+		data->ack_timer.data = (unsigned long)data;
+		data->ack_timer.function = mdp_recovery_ack_timer_handler;
+		data->ack_timer.expires = jiffies + MDP_RECOVERY_ACK_TIMEOUT;
+		add_timer(&data->ack_timer);
+	}
+out:
+	mutex_unlock(&recovery_ctx->ack_mutex);
+	return 0;
+}
+
+static uint32 mdp_recovery_get_ack_num(int display_id,
+				enum mdp_recovery_error_type err_type)
+{
+	struct list_head *pos = NULL;
+	struct mdp_recovery_client_info *c = NULL;
+	uint32 count = 0;
+
+	mutex_lock(&recovery_ctx->cli_mutex);
+	list_for_each(pos, &recovery_ctx->client_list) {
+		c = list_entry(pos, struct mdp_recovery_client_info, list);
+		if (c->register_info.error_mask & BIT(err_type))
+			count++;
+	}
+	mutex_unlock(&recovery_ctx->cli_mutex);
+	return count;
+}
+
+static void mdp_recovery_send_notification(int display_id,
+				enum mdp_recovery_error_type err_type,
+				enum mdp_recovery_status_type status)
+{
+	struct list_head *pos = NULL;
+	struct mdp_recovery_client_info *c = NULL;
+	struct mdp_recovery_callback_info cb_info;
+
+	mutex_lock(&recovery_ctx->cli_mutex);
+	list_for_each(pos, &recovery_ctx->client_list) {
+		c = list_entry(pos, struct mdp_recovery_client_info, list);
+		if (c->register_info.error_mask & BIT(err_type)) {
+			cb_info.display_id = display_id;
+			cb_info.err_type = err_type;
+			cb_info.data = c->register_info.cb_data;
+			cb_info.status = status;
+			c->register_info.cb(c, &cb_info);
+		}
+	}
+	mutex_unlock(&recovery_ctx->cli_mutex);
+}
+
+int mdp_recovery_acknowledge(void *handle,
+			struct mdp_recovery_ack_info *ack_info)
+{
+	struct mdp_recovery_client_info *c = NULL;
+	struct mdp_recovery_data *data = NULL;
+	struct list_head *pos = NULL;
+	boolean found = false;
+	int rc = 0;
+
+	if (!recovery_initialized) {
+		pr_err("%s: Not initialized!", __func__);
+		return -ENODEV;
+	}
+	if (!handle || !ack_info) {
+		pr_err("%s invalid params: NULL pointer!", __func__);
+		return -EINVAL;
+	}
+	if ((ack_info->display_id < 0) ||
+	    (ack_info->display_id >= MDP_RECOVERY_MAX_DISPLAY_NUM) ||
+	    (ack_info->err_type < 0) ||
+	    (ack_info->err_type >= MDP_RECOVERY_MAX_ERROR_TYPES)) {
+		pr_err("%s invalid ack info: display_id=%d, err_type=%d",
+			__func__, ack_info->display_id, ack_info->err_type);
+		return -EINVAL;
+	}
+	mutex_lock(&recovery_ctx->cli_mutex);
+	list_for_each(pos, &recovery_ctx->client_list) {
+		c = list_entry(pos, struct mdp_recovery_client_info, list);
+		if (c == handle) {
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		pr_err("%s can't find the client", __func__);
+		rc = -EFAULT;
+		goto out;
+	}
+	if (!(c->register_info.error_mask & BIT(ack_info->err_type))) {
+		pr_err("%s the client doesn't subscribe error type %d",
+			__func__, ack_info->err_type);
+		rc = -EFAULT;
+		goto out;
+	}
+	data = &recovery_ctx->data[ack_info->display_id][ack_info->err_type];
+	mutex_lock(&recovery_ctx->ack_mutex);
+	if (!data->waiting_ack) {
+		pr_err("%s receiving ack in non-waiting-ack state! " \
+			"display_id=%d, err_type=%d", __func__,
+			ack_info->display_id, ack_info->err_type);
+		rc = -EFAULT;
+		goto out1;
+	}
+	if ((ack_info->ack_type < 0) ||
+	    (ack_info->ack_type >= MDP_RECOVERY_ACK_MAX_NUM)) {
+		pr_err("%s invalid ack_type=%d", __func__, ack_info->ack_type);
+		rc = -EINVAL;
+		goto out1;
+	}
+	if (data->ack_type < ack_info->ack_type)
+		data->ack_type = ack_info->ack_type;
+	data->ack_count++;
+	if (data->ack_count == data->total_ack) {
+		/* all acks collected */
+		if (timer_pending(&data->ack_timer)) {
+			pr_debug("%s Remove ack timer", __func__);
+			del_timer(&data->ack_timer);
+		}
+		data->waiting_ack = false;
+		mdp_recovery_process_ack(data);
+	}
+out1:
+	mutex_unlock(&recovery_ctx->ack_mutex);
+out:
+	mutex_unlock(&recovery_ctx->cli_mutex);
+	return rc;
+}
+
+static void mdp_recovery_ack_timer_handler(unsigned long param)
+{
+	struct mdp_recovery_data *data = (struct mdp_recovery_data *)param;
+	if (!data) {
+		pr_err("%s invalid param: NULL pointer!", __func__);
+		return;
+	}
+	mutex_lock(&recovery_ctx->ack_mutex);
+	if (data->waiting_ack) {
+		data->waiting_ack = false;
+		mdp_recovery_process_ack(data);
+	} else {
+		pr_warn("%s: not in waiting-ack state!", __func__);
+	}
+	mutex_unlock(&recovery_ctx->ack_mutex);
+}
+
+static void mdp_recovery_process_ack(struct mdp_recovery_data *data)
+{
+	if (!data)
+		return;
+	if (data->ack_type == MDP_RECOVERY_ACK_IGNORE) {
+		pr_info("%s Ignore the error: display_id=%d, err_type=%d",
+			__func__, data->display_id, data->error_type);
+		data->error_state = false;
+	} else {
+		INIT_WORK(&data->recovery_work, mdp_recovery_work_handler);
+		queue_work(recovery_ctx->work_queue, &data->recovery_work);
+	}
+}
+
+static void mdp_recovery_work_handler(struct work_struct *work)
+{
+	boolean success = false;
+	struct mdp_recovery_data *data =
+		container_of(work, struct mdp_recovery_data, recovery_work);
+	if (!data) {
+		pr_err("%s invalid param: NULL pointer!", __func__);
+		return;
+	}
+	while (!success && data->retry_count++ < MDP_RECOVERY_MAX_RETRY)
+		success = mdp_recovery_do(data);
+	if (success) {
+		/* notify success */
+		mdp_recovery_send_notification(data->display_id,
+						data->error_type,
+						MDP_RECOVERY_SUCCESS);
+		/* The retry timer provides a confirmation period.
+		 * The retry counter is reset when retry timer expired.
+		 * If same error happens again before the retry timer
+		 * timeouts, last recovery success is a fake success.
+		 */
+		if (!timer_pending(&data->retry_timer)) {
+			pr_debug("%s add retry timer", __func__);
+			init_timer(&data->retry_timer);
+			data->retry_timer.data = (unsigned long)data;
+			data->retry_timer.function =
+				mdp_recovery_retry_timer_handler;
+			data->retry_timer.expires =
+				jiffies + MDP_RECOVERY_MAX_RETRY_TIMEOUT;
+			add_timer(&data->retry_timer);
+		} else {
+			pr_debug("%s mod retry timer", __func__);
+			mod_timer(&data->retry_timer,
+				jiffies + MDP_RECOVERY_MAX_RETRY_TIMEOUT);
+		}
+	} else {
+		/* notify critical error */
+		mdp_recovery_send_notification(data->display_id,
+						data->error_type,
+						MDP_RECOVERY_CRITICAL_ERROR);
+		if (timer_pending(&data->retry_timer)) {
+			pr_debug("%s Remove retry timer", __func__);
+			del_timer(&data->retry_timer);
+		}
+		data->retry_count = 0;
+	}
+	data->error_state = false;
+}
+
+static int mdp_recovery_engine_reset(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct msm_fb_data_type *mfd;
+	struct msm_fb_panel_data *pdata;
+
+	if (!pdev)
+		return -EINVAL;
+	mfd = platform_get_drvdata(pdev);
+	if (!mfd)
+		return -EINVAL;
+	pdata = (struct msm_fb_panel_data *)pdev->dev.platform_data;
+	if (!pdata)
+		return -EINVAL;
+	if (mfd->panel_power_on) {
+		mfd->op_enable = FALSE;
+		down(&mfd->sem);
+		mfd->panel_power_on = FALSE;
+		up(&mfd->sem);
+		cancel_delayed_work_sync(&mfd->backlight_worker);
+		if (mfd->msmfb_no_update_notify_timer.function)
+			del_timer(&mfd->msmfb_no_update_notify_timer);
+		complete(&mfd->msmfb_no_update_notify);
+		ret = pdata->off(mfd->pdev);
+		if (ret)
+			pr_err("%s: pdata->off err=%d, panel=%d",
+				__func__, ret, pdata->panel_info.type);
+		msm_fb_release_timeline(mfd);
+		mfd->op_enable = TRUE;
+	}
+	if (!ret && (!mfd->panel_power_on)) {
+		ret = pdata->on(mfd->pdev);
+		if (ret) {
+			pr_err("%s: pdata->on err=%d, panel=%d",
+				__func__, ret, pdata->panel_info.type);
+		} else {
+			down(&mfd->sem);
+			mfd->panel_power_on = TRUE;
+			up(&mfd->sem);
+			mfd->panel_driver_on = mfd->op_enable;
+		}
+	}
+	return ret;
+}
+
+static boolean mdp_recovery_do(struct mdp_recovery_data *data)
+{
+	boolean success = true;
+	int ret;
+	struct platform_device *pdev;
+
+	if (!data) {
+		pr_err("%s invalid param: NULL pointer!", __func__);
+		return false;
+	}
+	pdev = (struct platform_device *)data->err_src_data;
+	if (!pdev) {
+		pr_err("%s invalid param: NULL pointer pdev", __func__);
+		return false;
+	}
+	if (recovery_ctx->debug_flag) {
+		pr_info("%s Debug mode: display_id=%d, error_type=%d, " \
+			"ack_type=%d", __func__, data->display_id,
+			data->error_type, data->ack_type);
+		success = recovery_ctx->debug_flag > 0;
+		pr_info("%s Simulate recovery result: %s", __func__,
+			(success ? "Success" : "Failure"));
+		return success;
+	}
+	if ((data->error_type == MDP_RECOVERY_DISPLAY_ENGINE_ERROR) ||
+	    (data->ack_type == MDP_RECOVERY_ACK_RECOVER_ALL)) {
+		ret = mdp_recovery_engine_reset(pdev);
+		if (ret) {
+			pr_err("%s reset engine failed %d", __func__, ret);
+			success = false;
+		}
+	}
+	if ((data->error_type == MDP_RECOVERY_BRIDGE_CHIP_ERROR) ||
+	    (data->ack_type == MDP_RECOVERY_ACK_RECOVER_ALL)) {
+		ret = panel_next_dba_reset(pdev);
+		if (ret) {
+			pr_err("%s reset dba failed %d", __func__, ret);
+			success = false;
+		}
+	}
+	return success;
+}
+
+static void mdp_recovery_retry_timer_handler(unsigned long param)
+{
+	struct mdp_recovery_data *data = (struct mdp_recovery_data *)param;
+	if (!data)
+		return;
+	pr_info("%s Clear retry counter. display_id=%d, err_type=%d", __func__,
+		data->display_id, data->error_type);
+	data->retry_count = 0;
+}
+
+void mdp_recovery_debug(int debug_flag)
+{
+	recovery_ctx->debug_flag = debug_flag;
 }
 
 #ifdef CONFIG_MSM_BUS_SCALING
@@ -2813,7 +3880,6 @@ static int mdp_irq_clk_setup(struct platform_device *pdev,
 	}
 	return 0;
 }
-
 static int mdp_probe(struct platform_device *pdev)
 {
 	struct platform_device *msm_fb_dev = NULL;
@@ -2837,7 +3903,7 @@ static int mdp_probe(struct platform_device *pdev)
 		size =  resource_size(&pdev->resource[0]);
 		msm_mdp_base = ioremap(pdev->resource[0].start, size);
 
-		MSM_FB_DEBUG("MDP HW Base phy_Address = 0x%x virt = 0x%x\n",
+		MSM_FB_INFO("MDP HW Base phy_Address = 0x%x virt = 0x%x\n",
 			(int)pdev->resource[0].start, (int)msm_mdp_base);
 
 		if (unlikely(!msm_mdp_base))
@@ -2906,7 +3972,13 @@ static int mdp_probe(struct platform_device *pdev)
 	mfd->vsync_init = NULL;
 
 	mfd->ov0_wb_buf = MDP_ALLOC(sizeof(struct mdp_buf_type));
+	if (!mfd->ov0_wb_buf)
+		return -ENOMEM;
+
 	mfd->ov1_wb_buf = MDP_ALLOC(sizeof(struct mdp_buf_type));
+	if (!mfd->ov1_wb_buf)
+		return -ENOMEM;
+
 	memset((void *)mfd->ov0_wb_buf, 0, sizeof(struct mdp_buf_type));
 	memset((void *)mfd->ov1_wb_buf, 0, sizeof(struct mdp_buf_type));
 
@@ -2935,51 +4007,72 @@ static int mdp_probe(struct platform_device *pdev)
 	}
 
 	if (mdp_pdata) {
-		if (mdp_pdata->cont_splash_enabled &&
-				 mfd->panel_info.pdest == DISPLAY_1) {
-			char *cp;
-			uint32 bpp = 3;
-			/*read panel wxh and calculate splash screen
-			  size*/
-			mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		int i = 0;
+		int layermixer = 0, stage = 0, stage_adj = 0;
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		/* The clocks for splash image are enabled per display.
+		 * If current display has no splash image, clocks have to be
+		 * disabled in probe. Otherwise, they will be disabled inside
+		 * first mdp_on for this display.*/
+		mdp_clk_ctrl(1);
+		/* Read layer mixer first to see which layer are attached */
+		layermixer = inpdw(MDP_BASE + 0x10100);
+		if (((layermixer & 0x0000FFFF) != 0) &&
+			(mfd->panel_info.pdest < DISPLAY_3)) {
+			mfd->base_layer = OVERLAY_PIPE_MAX;
+			for (i = OVERLAY_PIPE_VG1; i < OVERLAY_PIPE_RGB3; i++) {
+				stage = (layermixer >> (i * 4)) & 0x0F;
+				if ((stage & 0x0F) == 0)
+					continue;
 
-			mdp_clk_ctrl(1);
-
-			mdp_pdata->splash_screen_size =
-				inpdw(MDP_BASE + 0x90004);
-			mdp_pdata->splash_screen_size =
-				(((mdp_pdata->splash_screen_size >> 16) &
-				  0x00000FFF) * (
-					  mdp_pdata->splash_screen_size &
-					  0x00000FFF)) * bpp;
-
-			mdp_pdata->splash_screen_addr =
-				inpdw(MDP_BASE + 0x90008);
-
-			mfd->copy_splash_buf = dma_alloc_coherent(NULL,
-					mdp_pdata->splash_screen_size,
-					(dma_addr_t *) &(mfd->copy_splash_phys),
-					GFP_KERNEL);
-
-			if (!mfd->copy_splash_buf) {
-				pr_err("DMA ALLOC FAILED for SPLASH\n");
-				return -ENOMEM;
+				stage_adj = stage +
+					(DISPLAY_2 - mfd->panel_info.pdest) * 8;
+				if (!((stage_adj >= 9) && (stage_adj <= 0x0F)))
+					/* Layer is not for this display*/
+					continue;
+				if (stage_adj == 9)
+					mfd->base_layer = i;
+				rc = mdp_map_splash_buffer(mfd, i);
+				if (rc) {
+					pr_err("%s,%d map splash buffer error" \
+						" rc=%d, id=%d", __func__,
+						__LINE__, rc, i);
+					mdp_pipe_ctrl(MDP_CMD_BLOCK,
+						MDP_BLOCK_POWER_OFF,
+						FALSE);
+					mdp_clk_ctrl(0);
+					goto mdp_probe_err;
+				}
+				if (!mfd->cont_splash_enabled)
+					mfd->cont_splash_enabled = 1;
 			}
-			cp = (char *)ioremap(
-					mdp_pdata->splash_screen_addr,
-					mdp_pdata->splash_screen_size);
-			if (!cp) {
-				pr_err("IOREMAP FAILED for SPLASH\n");
-				return -ENOMEM;
-			}
-			memcpy(mfd->copy_splash_buf, cp,
-					mdp_pdata->splash_screen_size);
-
-			MDP_OUTP(MDP_BASE + 0x90008,
-					mfd->copy_splash_phys);
-		}
-
-		mfd->cont_splash_done = (1 - mdp_pdata->cont_splash_enabled);
+		} else if (mfd->panel_info.pdest == DISPLAY_4) {
+			/* DMA_S */
+			if (inpdw(MDP_BASE + 0x000010) &&
+				inpdw(MDP_BASE + 0xA0008)) {
+				rc =
+				mdp_map_splash_buffer(mfd, OVERLAY_PIPE_DMAS);
+				if (rc) {
+					pr_err("%s,%d map splash buffer error" \
+						" rc=%d, DMA_S", __func__,
+						__LINE__, rc);
+					mdp_pipe_ctrl(MDP_CMD_BLOCK,
+						MDP_BLOCK_POWER_OFF,
+						FALSE);
+					mdp_clk_ctrl(0);
+					goto mdp_probe_err;
+				}
+				mfd->cont_splash_enabled = 1;
+			} else
+				mdp_clk_ctrl(0);
+		} else
+			mdp_clk_ctrl(0);
+		/* cont_splash_enabled in platform data is a flag used to track
+		   global splash enable state. The default state is disabled.*/
+		if (mfd->cont_splash_enabled)
+			mdp_pdata->cont_splash_enabled++;
+		mfd->cont_splash_done = (1 - mfd->cont_splash_enabled);
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	}
 
 	/* data chain */
@@ -3079,6 +4172,9 @@ static int mdp_probe(struct platform_device *pdev)
 		if (mfd->panel_info.pdest == DISPLAY_1) {
 			if_no = PRIMARY_INTF_SEL;
 			mfd->dma = &dma2_data;
+		} else if (mfd->panel_info.pdest == DISPLAY_4) {
+			if_no = SECONDARY_INTF_SEL;
+			mfd->dma = &dma_s_data;
 		} else {
 			if_no = EXTERNAL_INTF_SEL;
 			mfd->dma = &dma_e_data;
@@ -3197,10 +4293,26 @@ static int mdp_probe(struct platform_device *pdev)
 		if (mfd->panel.type == HDMI_PANEL) {
 			mfd->dma = &dma_e_data;
 			mdp4_display_intf_sel(EXTERNAL_INTF_SEL, LCDC_RGB_INTF);
+			mfd->vsync_init = mdp4_dtv_vsync_init;
+			mfd->vsync_show = mdp4_dtv_show_event;
 		} else {
 			mfd->dma = &dma2_data;
-			mdp4_display_intf_sel(PRIMARY_INTF_SEL, LCDC_RGB_INTF);
+			if (mfd->panel_info.pdest == DISPLAY_4)
+				mdp4_display_intf_sel(SECONDARY_INTF_SEL,
+					LCDC_RGB_INTF);
+			else
+				mdp4_display_intf_sel(PRIMARY_INTF_SEL,
+					LCDC_RGB_INTF);
 		}
+		/*
+		 * There is just a single underrun when lcdc timing
+		 * generator is enabled for no obvious reasons.  As a
+		 * workaround the underrun color is disabled here, so
+		 * that the single underrun won't have any visual
+		 * effect. Later, when the underrun is recoved, the
+		 * underrun color is restored.
+		 */
+		MDP_OUTP(MDP_BASE + 0xc002c, 0x80000000);
 #else
 		mfd->dma = &dma2_data;
 		mfd->vsync_ctrl = mdp_dma_lcdc_vsync_ctrl;
@@ -3275,6 +4387,8 @@ static int mdp_probe(struct platform_device *pdev)
 	}
 	mdp_clk_ctrl(0);
 
+	panel_next_set_error_cb(pdev, mdp_panel_error_cb);
+
 #ifdef CONFIG_MSM_BUS_SCALING
 	if (mdp_bus_scale_register())
 		return -ENOMEM;
@@ -3338,22 +4452,10 @@ static int mdp_probe(struct platform_device *pdev)
 void mdp_footswitch_ctrl(boolean on)
 {
 	mutex_lock(&mdp_suspend_mutex);
-	if (!mdp_suspended || mdp4_extn_disp || !footswitch ||
-		mdp_rev <= MDP_REV_41) {
+	if (!footswitch || mdp_rev <= MDP_REV_41) {
 		mutex_unlock(&mdp_suspend_mutex);
 		return;
 	}
-
-	if (dsi_pll_vddio)
-		regulator_enable(dsi_pll_vddio);
-
-	if (dsi_pll_vdda)
-		regulator_enable(dsi_pll_vdda);
-
-	mipi_dsi_prepare_ahb_clocks();
-	mipi_dsi_ahb_ctrl(1);
-	mipi_dsi_phy_ctrl(1);
-	mipi_dsi_clk_enable();
 
 	if (on && !mdp_footswitch_on) {
 		pr_debug("Enable MDP FS\n");
@@ -3365,30 +4467,7 @@ void mdp_footswitch_ctrl(boolean on)
 		mdp_footswitch_on = 0;
 	}
 
-	mipi_dsi_clk_disable();
-	mipi_dsi_unprepare_clocks();
-	mipi_dsi_phy_ctrl(0);
-	mipi_dsi_ahb_ctrl(0);
-	mipi_dsi_unprepare_ahb_clocks();
-
-	if (dsi_pll_vdda)
-		regulator_disable(dsi_pll_vdda);
-
-	if (dsi_pll_vddio)
-		regulator_disable(dsi_pll_vddio);
-
 	mutex_unlock(&mdp_suspend_mutex);
-}
-
-void mdp_free_splash_buffer(struct msm_fb_data_type *mfd)
-{
-	if (mfd->copy_splash_buf) {
-		dma_free_coherent(NULL,	mdp_pdata->splash_screen_size,
-			mfd->copy_splash_buf,
-			(dma_addr_t) mfd->copy_splash_phys);
-
-		mfd->copy_splash_buf = NULL;
-	}
 }
 
 #ifdef CONFIG_PM
@@ -3496,7 +4575,7 @@ static int __init mdp_driver_init(void)
 		return ret;
 	}
 
-#if defined(CONFIG_DEBUG_FS)
+#if defined(CONFIG_MDP_DEBUG_FS)
 	mdp_debugfs_init();
 #endif
 

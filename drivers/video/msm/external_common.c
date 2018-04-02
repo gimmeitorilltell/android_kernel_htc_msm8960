@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, 2015 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,13 @@
 #define SHOW_TV_NAME
 /* The start of the data block collection within the CEA Extension Version 3 */
 #define DBC_START_OFFSET 4
+
+/* Used for hdmi_feat_en node */
+#define EDID_STR       "EDID:"
+#define HPD_STR        "HPD:"
+#define EN_STR         "1;"
+#define DIS_STR        "0;"
+#define MAX_STR_SIZE   512
 
 #include "msm_fb.h"
 #include "hdmi_msm.h"
@@ -119,11 +126,12 @@ static ssize_t external_common_rda_video_mode_str(struct device *dev,
 	return ret;
 }
 
-#ifdef CONFIG_FB_MSM_HDMI_COMMON
 struct msm_hdmi_mode_timing_info
 	hdmi_common_supported_video_mode_lut[HDMI_VFRMT_MAX];
 EXPORT_SYMBOL(hdmi_common_supported_video_mode_lut);
 
+#ifdef CONFIG_FB_MSM_HDMI_COMMON
+#ifdef CONFIG_HDMI_EDID_ENABLED
 struct msm_hdmi_mode_timing_info
 	hdmi_mhl_supported_video_mode_lut[HDMI_VFRMT_MAX] = {
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_UNKNOWN),
@@ -241,6 +249,43 @@ static ssize_t hdmi_common_rda_edid_scan_info(struct device *dev,
 	return ret;
 }
 
+static ssize_t hdmi_common_rda_edid_3d_modes(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	int i;
+	char buff_3d[128];
+
+	buf[0] = 0;
+	if (external_common_state->disp_mode_list.num_of_elements) {
+		uint32 *video_mode = external_common_state->disp_mode_list
+			.disp_mode_list;
+		uint32 *video_3d_mode = external_common_state->disp_mode_list
+			.disp_3d_mode_list;
+		for (i = 0; i < external_common_state->disp_mode_list
+			.num_of_elements; ++i) {
+			video_3d_format_2string(
+				*video_3d_mode++, buff_3d, sizeof(buff_3d));
+			if (ret > 0)
+				ret += scnprintf(buf+ret, PAGE_SIZE-ret,
+					",%d=%s",
+					*video_mode++ + 1, buff_3d);
+			else
+				ret += scnprintf(buf+ret, PAGE_SIZE-ret,
+					"%d=%s",
+					*video_mode++ + 1, buff_3d);
+		}
+	} else {
+		ret += scnprintf(buf+ret, PAGE_SIZE-ret, "%d",
+			external_common_state->video_resolution+1);
+	}
+
+	DEV_DBG("%s: '%s'\n", __func__, buf);
+	ret += scnprintf(buf+ret, PAGE_SIZE-ret, "\n");
+	return ret;
+}
+#endif
+
 static ssize_t hdmi_common_wta_vendor_name(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -324,40 +369,6 @@ static ssize_t hdmi_common_rda_product_description(struct device *dev,
 	DEV_DBG("%s: '%s'\n", __func__,
 			external_common_state->spd_product_description);
 
-	return ret;
-}
-
-static ssize_t hdmi_common_rda_edid_3d_modes(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	ssize_t ret = 0;
-	int i;
-	char buff_3d[128];
-
-	buf[0] = 0;
-	if (external_common_state->disp_mode_list.num_of_elements) {
-		uint32 *video_mode = external_common_state->disp_mode_list
-			.disp_mode_list;
-		uint32 *video_3d_mode = external_common_state->disp_mode_list
-			.disp_3d_mode_list;
-		for (i = 0; i < external_common_state->disp_mode_list
-			.num_of_elements; ++i) {
-			video_3d_format_2string(*video_3d_mode++, buff_3d, sizeof(buff_3d));
-			if (ret > 0)
-				ret += snprintf(buf+ret, PAGE_SIZE-ret,
-					",%d=%s",
-					*video_mode++ + 1, buff_3d);
-			else
-				ret += snprintf(buf+ret, PAGE_SIZE-ret,
-					"%d=%s",
-					*video_mode++ + 1, buff_3d);
-		}
-	} else
-		ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d",
-			external_common_state->video_resolution+1);
-
-	DEV_DBG("%s: '%s'\n", __func__, buf);
-	ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
 	return ret;
 }
 
@@ -652,6 +663,7 @@ static ssize_t external_common_rda_video_mode(struct device *dev,
 	return ret;
 }
 
+#ifdef CONFIG_HDMI_EDID_ENABLED
 static ssize_t external_common_wta_video_mode(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -689,6 +701,13 @@ static ssize_t external_common_wta_video_mode(struct device *dev,
 	kobject_uevent(external_common_state->uevent_kobj, KOBJ_ONLINE);
 	return ret;
 }
+#else
+static ssize_t external_common_wta_video_mode(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	return count;
+}
+#endif
 
 static ssize_t external_common_rda_connected(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -780,6 +799,27 @@ static ssize_t hdmi_common_rda_spkr_alloc_data_block(struct device *dev,
 	return ret;
 }
 
+int hdmi_common_rda_hdmi_feature_en(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	char str[MAX_STR_SIZE];
+	memset(str, 0, MAX_STR_SIZE);
+
+	strlcpy(str, HPD_STR, MAX_STR_SIZE);
+	if (external_common_state->hpd_en)
+		strlcat(str, EN_STR, MAX_STR_SIZE);
+	else
+		strlcat(str, DIS_STR, MAX_STR_SIZE);
+
+	strlcat(str, EDID_STR, MAX_STR_SIZE);
+	if (external_common_state->edid_en)
+		strlcat(str, EN_STR, MAX_STR_SIZE);
+	else
+		strlcat(str, DIS_STR, MAX_STR_SIZE);
+
+	return snprintf(buf, MAX_STR_SIZE, "%s\n", str);
+}
+
 static DEVICE_ATTR(video_mode, S_IRUGO | S_IWUSR | S_IWGRP,
 	external_common_rda_video_mode, external_common_wta_video_mode);
 static DEVICE_ATTR(video_mode_str, S_IRUGO, external_common_rda_video_mode_str,
@@ -787,21 +827,24 @@ static DEVICE_ATTR(video_mode_str, S_IRUGO, external_common_rda_video_mode_str,
 static DEVICE_ATTR(connected, S_IRUGO, external_common_rda_connected, NULL);
 static DEVICE_ATTR(hdmi_mode, S_IRUGO, external_common_rda_hdmi_mode, NULL);
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
+
+#ifdef CONFIG_HDMI_EDID_ENABLED
 static DEVICE_ATTR(edid_modes, S_IRUGO, hdmi_common_rda_edid_modes, NULL);
-static DEVICE_ATTR(hpd, S_IRUGO | S_IWUSR | S_IWGRP, hdmi_common_rda_hpd,
-	hdmi_common_wta_hpd);
-static DEVICE_ATTR(hdcp, S_IRUGO, hdmi_common_rda_hdcp, NULL);
 static DEVICE_ATTR(pa, S_IRUSR,
 	hdmi_common_rda_edid_physical_address, NULL);
 static DEVICE_ATTR(scan_info, S_IRUGO,
 	hdmi_common_rda_edid_scan_info, NULL);
+static DEVICE_ATTR(edid_3d_modes, S_IRUGO,
+	hdmi_common_rda_edid_3d_modes, NULL);
+#endif
+static DEVICE_ATTR(hpd, S_IRUGO | S_IWUSR | S_IWGRP, hdmi_common_rda_hpd,
+	hdmi_common_wta_hpd);
+static DEVICE_ATTR(hdcp, S_IRUGO, hdmi_common_rda_hdcp, NULL);
 static DEVICE_ATTR(vendor_name, S_IRUGO | S_IWUSR, hdmi_common_rda_vendor_name,
 	hdmi_common_wta_vendor_name);
 static DEVICE_ATTR(product_description, S_IRUGO | S_IWUSR,
 	hdmi_common_rda_product_description,
 	hdmi_common_wta_product_description);
-static DEVICE_ATTR(edid_3d_modes, S_IRUGO,
-	hdmi_common_rda_edid_3d_modes, NULL);
 static DEVICE_ATTR(3d_present, S_IRUGO, hdmi_common_rda_3d_present, NULL);
 static DEVICE_ATTR(hdcp_present, S_IRUGO, hdmi_common_rda_hdcp_present, NULL);
 #endif
@@ -814,6 +857,10 @@ static DEVICE_ATTR(audio_data_block, S_IRUGO, hdmi_common_rda_audio_data_block,
 	NULL);
 static DEVICE_ATTR(spkr_alloc_data_block, S_IRUGO,
 	hdmi_common_rda_spkr_alloc_data_block, NULL);
+static DEVICE_ATTR(audio_caps, S_IRUGO | S_IWUSR, hdmi_common_rda_audio_caps,
+	hdmi_common_wta_audio_caps);
+static DEVICE_ATTR(hdmi_feature_en, S_IRUGO,
+	hdmi_common_rda_hdmi_feature_en, NULL);
 
 static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_video_mode.attr,
@@ -821,14 +868,16 @@ static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_connected.attr,
 	&dev_attr_hdmi_mode.attr,
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
-	&dev_attr_edid_modes.attr,
 	&dev_attr_hdcp.attr,
 	&dev_attr_hpd.attr,
-	&dev_attr_pa.attr,
-	&dev_attr_scan_info.attr,
 	&dev_attr_vendor_name.attr,
 	&dev_attr_product_description.attr,
+#ifdef CONFIG_HDMI_EDID_ENABLED
 	&dev_attr_edid_3d_modes.attr,
+	&dev_attr_edid_modes.attr,
+	&dev_attr_pa.attr,
+	&dev_attr_scan_info.attr,
+#endif
 	&dev_attr_3d_present.attr,
 	&dev_attr_hdcp_present.attr,
 #endif
@@ -844,6 +893,8 @@ static struct attribute *external_common_fs_attrs[] = {
 	&dev_attr_hdmi_primary.attr,
 	&dev_attr_audio_data_block.attr,
 	&dev_attr_spkr_alloc_data_block.attr,
+	&dev_attr_audio_caps.attr,
+	&dev_attr_hdmi_feature_en.attr,
 	NULL,
 };
 static struct attribute_group external_common_fs_attr_group = {
@@ -915,6 +966,7 @@ struct hdmi_edid_video_mode_property_type {
 	boolean	aspect_ratio_4_3;
 };
 
+#ifdef CONFIG_HDMI_EDID_ENABLED
 /* LUT is sorted from lowest Active H to highest Active H - ease searching */
 static struct hdmi_edid_video_mode_property_type
 	hdmi_edid_disp_mode_lut[] = {
@@ -2072,6 +2124,7 @@ error:
 	return status;
 }
 EXPORT_SYMBOL(hdmi_common_read_edid);
+#endif
 
 bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 {
@@ -2082,6 +2135,11 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 	if (var->reserved[3]) {
 		format = var->reserved[3] >> 16;
 		DEV_DBG("reserved format is %d\n", format);
+	} else if (hdmi_prim_display) {
+		if (hdmi_prim_resolution)
+			format = hdmi_prim_resolution;
+		else
+			format = HDMI_RESOLUTION_DEFAULT;
 	} else {
 		DEV_DBG("detecting resolution from %dx%d use var->reserved[3]"
 			" to specify mode", mfd->var_xres, mfd->var_yres);
@@ -2143,6 +2201,8 @@ const struct msm_hdmi_mode_timing_info *hdmi_common_get_supported_mode(
 }
 EXPORT_SYMBOL(hdmi_common_get_supported_mode);
 
+
+#ifdef CONFIG_HDMI_MHL_ENABLED
 const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode)
 {
 	if (mode >= HDMI_VFRMT_MAX)
@@ -2163,6 +2223,20 @@ const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_supported_mode(
 	return ret;
 }
 EXPORT_SYMBOL(hdmi_mhl_get_supported_mode);
+#else
+const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_mode(uint32 mode)
+{
+	return NULL;
+}
+EXPORT_SYMBOL(hdmi_mhl_get_mode);
+
+const struct msm_hdmi_mode_timing_info *hdmi_mhl_get_supported_mode(
+	uint32 mode)
+{
+	return NULL;
+}
+EXPORT_SYMBOL(hdmi_mhl_get_supported_mode);
+#endif
 
 void hdmi_common_init_panel_info(struct msm_panel_info *pinfo)
 {
@@ -2201,4 +2275,5 @@ void hdmi_common_init_panel_info(struct msm_panel_info *pinfo)
 	pinfo->lcdc.hsync_skew = 0;
 }
 EXPORT_SYMBOL(hdmi_common_init_panel_info);
+
 #endif

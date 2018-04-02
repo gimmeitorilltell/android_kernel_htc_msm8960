@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -238,18 +238,15 @@ void mdp4_overlay_cfg(int overlayer, int blt_mode, int refresh, int direct_out)
 void mdp4_display_intf_sel(int output, ulong intf)
 {
 	ulong bits, mask, data;
-	/* MDP cmd block enable */
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+	mdp_clk_ctrl(1);
 
 	bits = inpdw(MDP_BASE + 0x0038);	/* MDP_DISP_INTF_SEL */
 
 	if (intf == DSI_VIDEO_INTF) {
 		data = 0x40;	/* bit 6 */
-		intf = MDDI_LCDC_INTF;
-		if (output == SECONDARY_INTF_SEL) {
-			MSM_FB_INFO("%s: Illegal INTF selected, output=%d \
-				intf=%d\n", __func__, output, (int)intf);
-		}
+		if (output == SECONDARY_INTF_SEL)
+			intf = 0x01;
 	} else if (intf == DSI_CMD_INTF) {
 		data = 0x80;	/* bit 7 */
 		intf = MDDI_INTF;
@@ -269,7 +266,7 @@ void mdp4_display_intf_sel(int output, ulong intf)
 		mask <<= 4;
 		break;
 	case SECONDARY_INTF_SEL:
-		intf &= 0x02;	/* only MDDI and EBI2 support */
+		intf &= 0x3;
 		intf <<= 2;
 		mask <<= 2;
 		break;
@@ -284,10 +281,11 @@ void mdp4_display_intf_sel(int output, ulong intf)
 	bits |= intf;
 
 	outpdw(MDP_BASE + 0x0038, bits);	/* MDP_DISP_INTF_SEL */
-	/* MDP cmd block disable */
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
-  MSM_FB_DEBUG("mdp4_display_intf_sel: 0x%x\n", (int)inpdw(MDP_BASE + 0x0038));
+	mdp_clk_ctrl(0);
+
+	pr_debug("mdp4_display_intf_sel: 0x%x\n",
+		(int)inpdw(MDP_BASE + 0x0038));
 }
 
 unsigned long mdp4_display_status(void)
@@ -503,10 +501,11 @@ void mdp4_clear_lcdc(void)
 
 irqreturn_t mdp4_isr(int irq, void *ptr)
 {
-	uint32 isr, mask, panel;
-	struct mdp_dma_data *dma;
+	uint32 isr = 0, mask = 0;
+	struct mdp_dma_data *dma = NULL;
 	struct mdp_hist_mgmt *mgmt = NULL;
-	int i, ret;
+	int i = 0, ret = 0;
+	uint32 panel[MDP4_MIXER_MAX];
 
 	mdp_is_in_isr = TRUE;
 
@@ -535,11 +534,46 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 				continue;
 			mgmt->mdp_is_hist_valid = FALSE;
 		}
+		mdp_recovery_set_error(DISPLAY_PRIMARY,
+					MDP_RECOVERY_DISPLAY_ENGINE_ERROR);
+	}
+
+	if (isr & INTR_SECONDARY_INTF_UDERRUN) {
+		pr_debug("%s: UNDERRUN -- secondary\n", __func__);
+		mdp4_stat.intr_underrun_s++;
+		/* When underun occurs mdp clear the histogram registers
+		that are set before in hw_init so restore them back so
+		that histogram works.*/
+		for (i = 0; i < MDP_HIST_MGMT_MAX; i++) {
+			mgmt = mdp_hist_mgmt_array[i];
+			if (!mgmt)
+				continue;
+			mgmt->mdp_is_hist_valid = FALSE;
+		}
+		mdp_recovery_set_error(DISPLAY_TERTIARY,
+					MDP_RECOVERY_DISPLAY_ENGINE_ERROR);
 	}
 
 	if (isr & INTR_EXTERNAL_INTF_UDERRUN) {
 		pr_debug("%s: UNDERRUN -- external\n", __func__);
 		mdp4_stat.intr_underrun_e++;
+		mdp_recovery_set_error(DISPLAY_SECONDARY,
+					MDP_RECOVERY_DISPLAY_ENGINE_ERROR);
+	}
+
+	if ((isr & INTR_AXI_PORT0_RW_ERROR) ||
+	    (isr & INTR_AXI_PORT1_RW_ERROR) ||
+	    (isr & INTR_AXI_PORT0_TIMEOUT) ||
+	    (isr & INTR_AXI_PORT1_TIMEOUT)) {
+		pr_info("%s AXI errors\n", __func__);
+		mdp_recovery_set_error(DISPLAY_PRIMARY,
+					MDP_RECOVERY_DISPLAY_ENGINE_ERROR);
+	}
+
+	if (isr & INTR_LVDS_PLL_UNLOCKS) {
+		pr_info("%s LVDS PLL Unlocks", __func__);
+		mdp_recovery_set_error(DISPLAY_PRIMARY,
+					MDP_RECOVERY_DISPLAY_ENGINE_ERROR);
 	}
 
 	isr &= mask;
@@ -547,18 +581,19 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	if (isr == 0)
 		goto out;
 
-	panel = mdp4_overlay_panel_list();
+	for (i = 0; i < MDP4_MIXER_MAX; i++)
+		panel[i] = mdp4_overlay_panel_list(i);
 
 	if (isr & INTR_DMA_P_DONE) {
 		mdp4_stat.intr_dma_p++;
 		dma = &dma2_data;
-		if (panel & MDP4_PANEL_LCDC)
+		if (panel[MDP4_MIXER0] & MDP4_PANEL_LCDC)
 			mdp4_dmap_done_lcdc(0);
 #ifdef CONFIG_FB_MSM_OVERLAY
 #ifdef CONFIG_FB_MSM_MIPI_DSI
-		else if (panel & MDP4_PANEL_DSI_VIDEO)
+		else if (panel[MDP4_MIXER0] & MDP4_PANEL_DSI_VIDEO)
 			mdp4_dmap_done_dsi_video(0);
-		else if (panel & MDP4_PANEL_DSI_CMD)
+		else if (panel[MDP4_MIXER0] & MDP4_PANEL_DSI_CMD)
 			mdp4_dmap_done_dsi_cmd(0);
 #else
 		else { /* MDDI */
@@ -592,27 +627,28 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	}
 	if (isr & INTR_DMA_E_DONE) {
 		mdp4_stat.intr_dma_e++;
-		if (panel & MDP4_PANEL_DTV)
+		if (panel[MDP4_MIXER1] & MDP4_PANEL_DTV)
 			mdp4_dmae_done_dtv();
 	}
 #ifdef CONFIG_FB_MSM_OVERLAY
 	if (isr & INTR_OVERLAY0_DONE) {
 		mdp4_stat.intr_overlay0++;
 		dma = &dma2_data;
-		if (panel & (MDP4_PANEL_LCDC | MDP4_PANEL_DSI_VIDEO)) {
+		if (panel[MDP4_MIXER0] & \
+			(MDP4_PANEL_LCDC | MDP4_PANEL_DSI_VIDEO)) {
 			/* disable LCDC interrupt */
-			if (panel & MDP4_PANEL_LCDC)
+			if (panel[MDP4_MIXER0] & MDP4_PANEL_LCDC)
 				mdp4_overlay0_done_lcdc(0);
 #ifdef CONFIG_FB_MSM_MIPI_DSI
-			else if (panel & MDP4_PANEL_DSI_VIDEO)
+			else if (panel[MDP4_MIXER0] & MDP4_PANEL_DSI_VIDEO)
 				mdp4_overlay0_done_dsi_video(0);
 #endif
 		} else {        /* MDDI, DSI_CMD  */
 #ifdef CONFIG_FB_MSM_MIPI_DSI
-			if (panel & MDP4_PANEL_DSI_CMD)
+			if (panel[MDP4_MIXER0] & MDP4_PANEL_DSI_CMD)
 				mdp4_overlay0_done_dsi_cmd(0);
 #else
-			if (panel & MDP4_PANEL_MDDI)
+			if (panel[MDP4_MIXER0] & MDP4_PANEL_MDDI)
 				mdp4_overlay0_done_mddi(dma);
 #endif
 		}
@@ -628,11 +664,11 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		dma->waiting = FALSE;
 		spin_unlock(&mdp_spin_lock);
 #if defined(CONFIG_FB_MSM_DTV)
-		if (panel & MDP4_PANEL_DTV)
+		if (panel[MDP4_MIXER1] & MDP4_PANEL_DTV)
 			mdp4_overlay1_done_dtv();
 #endif
 #if defined(CONFIG_FB_MSM_TVOUT)
-		if (panel & MDP4_PANEL_ATV)
+		if (panel[MDP4_MIXER1] & MDP4_PANEL_ATV)
 			mdp4_overlay1_done_atv();
 #endif
 	}
@@ -640,7 +676,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	if (isr & INTR_OVERLAY2_DONE) {
 		mdp4_stat.intr_overlay2++;
 		/* disable DTV interrupt */
-		if (panel & MDP4_PANEL_WRITEBACK)
+		if (panel[MDP4_MIXER2] & MDP4_PANEL_WRITEBACK)
 			mdp4_overlay2_done_wfd(&dma_wb_data);
 	}
 #endif
@@ -648,18 +684,25 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 
 	if (isr & INTR_PRIMARY_VSYNC) {
 		mdp4_stat.intr_vsync_p++;
-		if (panel & MDP4_PANEL_LCDC)
+		if (panel[MDP4_MIXER0] & MDP4_PANEL_LCDC)
 			mdp4_primary_vsync_lcdc();
-		else if (panel & MDP4_PANEL_DSI_VIDEO)
+		else if (panel[MDP4_MIXER0] & MDP4_PANEL_DSI_VIDEO)
 			mdp4_primary_vsync_dsi_video();
 	}
-#ifdef CONFIG_FB_MSM_DTV
+
+	if (isr & INTR_SECONDARY_VSYNC) {
+		mdp4_stat.intr_vsync_s++;
+		if (panel[MDP4_MIXER_NONE] & MDP4_PANEL_LCDC)
+			mdp4_primary_vsync_lcdc();
+		else if ((panel[MDP4_MIXER_NONE] & MDP4_PANEL_DSI_VIDEO) ||
+			(panel[MDP4_MIXER_NONE] & MDP4_PANEL_DSI_VIDEO_DMA_S))
+			mdp4_primary_vsync_dsi_video();
+	}
 	if (isr & INTR_EXTERNAL_VSYNC) {
 		mdp4_stat.intr_vsync_e++;
-		if (panel & MDP4_PANEL_DTV)
+		if (panel[MDP4_MIXER1] & MDP4_PANEL_DTV)
 			mdp4_external_vsync_dtv();
 	}
-#endif
 	if (isr & INTR_DMA_P_HISTOGRAM) {
 		mdp4_stat.intr_histogram++;
 		ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_P, &mgmt);
@@ -1314,6 +1357,9 @@ void mdp4_mixer_blend_init(mixer_num)
 	unsigned char *overlay_base;
 	int off;
 
+	if (mixer_num >= MDP4_MIXER_NONE)
+		return;
+
 	if (mixer_num) 	/* mixer number, /dev/fb0, /dev/fb1 */
 		overlay_base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;/* 0x18000 */
 	else
@@ -1962,6 +2008,9 @@ void mdp4_mixer_gc_lut_setup(int mixer_num)
 	uint32 data;
 	char val;
 	int i, off;
+
+	if (mixer_num >= MDP4_MIXER_NONE)
+		return;
 
 	if (mixer_num) 	/* mixer number, /dev/fb0, /dev/fb1 */
 		base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;/* 0x18000 */
