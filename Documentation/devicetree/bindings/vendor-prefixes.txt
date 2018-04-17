@@ -5,6 +5,7 @@ using them to avoid name-space collisions.
 
 adi	Analog Devices, Inc.
 amcc	Applied Micro Circuits Corporation (APM, formally AMCC)
+android	Google Inc.
 apm	Applied Micro Circuits Corporation (APM)
 arm	ARM Ltd.
 atmel	Atmel Corporation
