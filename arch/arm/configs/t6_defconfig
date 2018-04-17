@@ -1359,6 +1359,7 @@ CONFIG_EEPROM_93CX6=y
 #
 # Altera FPGA firmware download module
 #
+CONFIG_PROC_DEVICETREE=y
 # CONFIG_ALTERA_STAPL is not set
 # CONFIG_SLIMPORT_ANX7808 is not set
 
