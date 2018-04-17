@@ -299,36 +299,6 @@ static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
-static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-
-	struct timespec ts;
-	int rv;
-
-	switch (ANDROID_ALARM_BASE_CMD(cmd)) {
-		case ANDROID_ALARM_SET_AND_WAIT(0):
-		case ANDROID_ALARM_SET(0):
-		case ANDROID_ALARM_SET_RTC:
-		case ANDROID_ALARM_CLEAR(0):
-			if (copy_from_user(&ts, (void __user *)arg, sizeof(ts)))
-				return -EFAULT;
-			break;
-	}
-
-	rv = alarm_do_ioctl(file, cmd, &ts);
-	if (rv)
-		return rv;
-
-	switch (ANDROID_ALARM_BASE_CMD(cmd)) {
-		case ANDROID_ALARM_GET_TIME(0):
-			if (copy_to_user((void __user *)arg, &ts, sizeof(ts)))
-				return -EFAULT;
-			break;
-	}
-
-	return 0;
-}
-
 static int alarm_open(struct inode *inode, struct file *file)
 {
 	file->private_data = NULL;
@@ -456,3 +426,4 @@ static void  __exit alarm_dev_exit(void)
 
 module_init(alarm_dev_init);
 module_exit(alarm_dev_exit);
+

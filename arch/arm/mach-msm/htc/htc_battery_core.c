@@ -937,7 +937,7 @@ static ssize_t htc_battery_charger_ctrl_timer(struct device *dev,
 		}
 		interval = ktime_set(time_out, 0);
 		next_alarm = ktime_add(ktime_get_boottime(), interval);
- 		alarm_start_relative(&batt_charger_ctrl_alarm, next_alarm);
+		alarm_start_relative(&batt_charger_ctrl_alarm, next_alarm);
 		charger_ctrl_stat = STOP_CHARGER;
 	} else if (time_out == 0) {
 		rc = battery_core_info.func.func_charger_control(
@@ -971,8 +971,8 @@ static enum alarmtimer_restart batt_charger_ctrl_alarm_handler(struct alarm *ala
 	BATT_LOG("charger control alarm is timeout.");
 
 	queue_work(batt_charger_ctrl_wq, &batt_charger_ctrl_work);
-    
-    return ALARMTIMER_NORESTART;
+
+	return ALARMTIMER_NORESTART;
 }
 
 int htc_battery_core_update_changed(void)

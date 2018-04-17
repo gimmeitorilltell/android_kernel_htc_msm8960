@@ -39,10 +39,6 @@
 #include <mach/htc_gauge.h>
 #include <mach/htc_charger.h>
 #include <mach/htc_battery_cell.h>
-
-#ifdef CONFIG_FORCE_FAST_CHARGE
-#include <linux/fastchg.h>
-#endif
 #define MSPERIOD(end, start)	ktime_to_ms(ktime_sub(end, start))
 
 #define HTC_BATT_CHG_DIS_BIT_EOC	(1)
@@ -436,13 +432,7 @@ int htc_charger_event_notify(enum htc_charger_event event)
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_SRC_USB: 
-		if (force_fast_charge == 1) {
-			printk("[FASTCHARGE] Forcing CHARGER_AC");
-			latest_chg_src = CHARGER_AC;
-		} else {
-			printk("[FASTCHARGE] NOT set, using normal CHARGER_USB");
-			latest_chg_src = CHARGER_USB;
-		}
+		latest_chg_src = CHARGER_USB;
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_SRC_AC: 
@@ -463,13 +453,10 @@ int htc_charger_event_notify(enum htc_charger_event event)
 								UNKNOWN_USB_DETECT_DELAY_MS)));
 		break;
 	case HTC_CHARGER_EVENT_SRC_UNKNOWN_USB: 
-		if (force_fast_charge == 1) {
-			printk("[FASTCHARGE] Forcing CHARGER_AC");
+		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_FAST_CHARGE)
 			latest_chg_src = CHARGER_AC;
-		} else {
-			printk("[FASTCHARGE] NOT set, using normal CHARGER_UNKNOWN_USB");
+		else
 			latest_chg_src = CHARGER_UNKNOWN_USB;
-		}
 		htc_batt_schedule_batt_info_update();
 		break;
 	case HTC_CHARGER_EVENT_OVP:
@@ -677,18 +664,8 @@ static void cable_status_notifier_func(enum usb_connect_type online)
 
 	switch (online) {
 	case CONNECT_TYPE_USB:
-#ifdef CONFIG_FORCE_FAST_CHARGE
-		if (force_fast_charge == 1) {
-			BATT_LOG("cable USB forced fast charge");
-			htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_AC);
-		} else {
-			BATT_LOG("USB charger");
-			htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_USB);
-		}
-#else
 		BATT_LOG("USB charger");
 		htc_charger_event_notify(HTC_CHARGER_EVENT_SRC_USB);
-#endif
 		
 		break;
 	case CONNECT_TYPE_AC:
@@ -2717,7 +2694,7 @@ static int htc_battery_prepare(struct device *dev)
 		batt_temp, sensor0_temp);
 
 	next_alarm = ktime_add(ktime_get_boottime(), interval);
- 	alarm_start_relative(&htc_batt_timer.batt_check_wakeup_alarm, next_alarm);
+	alarm_start_relative(&htc_batt_timer.batt_check_wakeup_alarm, next_alarm);
 
 	return 0;
 }
