@@ -417,9 +417,13 @@ static int usb_unbind_interface(struct device *dev)
 int usb_driver_claim_interface(struct usb_driver *driver,
 				struct usb_interface *iface, void *priv)
 {
-	struct device *dev = &iface->dev;
+	struct device *dev;
 	int retval = 0;
 
+	if (!iface)
+		return -ENODEV;
+
+	dev = &iface->dev;
 	if (dev->driver)
 		return -EBUSY;
 
@@ -534,6 +538,14 @@ int usb_match_one_id_intf(struct usb_device *dev,
 			  struct usb_host_interface *intf,
 			  const struct usb_device_id *id)
 {
+
+	/* proc_connectinfo in devio.c may call us with id == NULL. */
+	if (id == NULL)
+		return 0;
+
+	if (!usb_match_device(dev, id))
+		return 0;
+
 	/* The interface class, subclass, protocol and number should never be
 	 * checked for a match if the device class is Vendor Specific,
 	 * unless the match record specifies the Vendor ID. */
@@ -1306,42 +1318,6 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 }
 
 #ifdef CONFIG_USB_OTG
-#define DO_UNBIND	0
-#define DO_REBIND	1
-
-/* Unbind drivers for @udev's interfaces that don't support suspend/resume,
- * or rebind interfaces that have been unbound, according to @action.
- *
- * The caller must hold @udev's device lock.
- */
-static void do_unbind_rebind(struct usb_device *udev, int action)
-{
-	struct usb_host_config	*config;
-	int			i;
-	struct usb_interface	*intf;
-	struct usb_driver	*drv;
-
-	config = udev->actconfig;
-	if (config) {
-		for (i = 0; i < config->desc.bNumInterfaces; ++i) {
-			intf = config->interface[i];
-			switch (action) {
-			case DO_UNBIND:
-				if (intf->dev.driver) {
-					drv = to_usb_driver(intf->dev.driver);
-					if (!drv->suspend || !drv->resume)
-						usb_forced_unbind_intf(intf);
-				}
-				break;
-			case DO_REBIND:
-				if (intf->needs_binding)
-					usb_rebind_intf(intf);
-				break;
-			}
-		}
-	}
-}
-
 void usb_hnp_polling_work(struct work_struct *work)
 {
 	int ret;

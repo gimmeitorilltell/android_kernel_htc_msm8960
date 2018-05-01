@@ -651,17 +651,25 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
             && psessionEntry->pLimStartBssReq->rsnIE.length)
         {
             limLog(pMac, LOGE,
-                   FL("RSN enabled auth, Re/Assoc req from STA: "MAC_ADDRESS_STR),
-                       MAC_ADDR_ARRAY(pHdr->sa));
+                   FL("AP supports RSN enabled authentication"));
+
             if(pAssocReq->rsnPresent)
             {
                 if(pAssocReq->rsn.length)
                 {
                     // Unpack the RSN IE 
-                    dot11fUnpackIeRSN(pMac, 
+                    if (dot11fUnpackIeRSN(pMac,
                                         &pAssocReq->rsn.info[0], 
                                         pAssocReq->rsn.length, 
-                                        &Dot11fIERSN);
+                                        &Dot11fIERSN) != DOT11F_PARSE_SUCCESS)
+                    {
+                        limLog(pMac, LOG1,
+                            FL("Invalid RSNIE received"));
+                        limSendAssocRspMgmtFrame(pMac,
+                            eSIR_MAC_INVALID_RSN_IE_CAPABILITIES_STATUS,
+                            1, pHdr->sa, subType, 0,psessionEntry);
+                        goto error;
+                    }
 
                     /* Check RSN version is supported or not */
                     if(SIR_MAC_OUI_VERSION_1 == Dot11fIERSN.version)
@@ -721,10 +729,17 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
                 // Unpack the WPA IE 
                 if(pAssocReq->wpa.length)
                 {
-                    dot11fUnpackIeWPA(pMac, 
+                    if (dot11fUnpackIeWPA(pMac,
                                         &pAssocReq->wpa.info[4], //OUI is not taken care
                                         pAssocReq->wpa.length, 
-                                        &Dot11fIEWPA);
+                                        &Dot11fIEWPA) != DOT11F_PARSE_SUCCESS)
+                    {
+                        limLog(pMac, LOGE, FL("Invalid WPA IE"));
+                        limSendAssocRspMgmtFrame(pMac,
+                                eSIR_MAC_INVALID_INFORMATION_ELEMENT_STATUS,
+                                1, pHdr->sa, subType, 0,psessionEntry);
+                        goto error;
+                    }
                     /* check the groupwise and pairwise cipher suites */
                     if(eSIR_SUCCESS != (status = limCheckRxWPAIeMatch(pMac, Dot11fIEWPA, psessionEntry, pAssocReq->HTCaps.present)))
                     {
@@ -859,46 +874,35 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
             goto error;
         } // if (pStaDs->mlmStaContext.mlmState != eLIM_MLM_LINK_ESTABLISHED_STATE)
 
-           /* STA sent association Request frame while already in
-            * 'associated' state and no change in the capability
-            *  so drop the frame */
-        if ((VOS_TRUE == vos_mem_compare(&pStaDs->mlmStaContext.capabilityInfo,
-                                          &pAssocReq->capabilityInfo,
-                                          sizeof(tSirMacCapabilityInfo)))&&
-                                         (subType == LIM_ASSOC))
-        {
-            limLog(pMac, LOGE, FL(" Received Assoc req in state %X STAid=%d"),
-                                       pStaDs->mlmStaContext.mlmState,peerIdx);
-            goto error;
-        }
-        else
-        {
-         /**
-         * STA sent Re/association Request frame while already in
+        /**
+         * STA sent Re/Association Request frame while already in
          * 'associated' state. Update STA capabilities and
          * send Association response frame with same AID
          */
-            pStaDs->mlmStaContext.capabilityInfo = pAssocReq->capabilityInfo;
-            if (pStaPreAuthContext &&
-                (pStaPreAuthContext->mlmState ==
-                                           eLIM_MLM_AUTHENTICATED_STATE))
-            {
-                /// STA has triggered pre-auth again
-                authType = pStaPreAuthContext->authType;
-                limDeletePreAuthNode(pMac, pHdr->sa);
-            }
-            else
-                authType = pStaDs->mlmStaContext.authType;
 
-            updateContext = true;
-            if (dphInitStaState(pMac, pHdr->sa, peerIdx, true, &psessionEntry->dph.dphHashTable)
-                                      == NULL)
-            {
-                limLog(pMac, LOGE, FL("could not Init STAid=%d"), peerIdx);
-                goto  error;
-            }
+        pStaDs->mlmStaContext.capabilityInfo = pAssocReq->capabilityInfo;
+
+        if (pStaPreAuthContext &&
+            (pStaPreAuthContext->mlmState ==
+                                       eLIM_MLM_AUTHENTICATED_STATE))
+        {
+            /// STA has triggered pre-auth again
+            authType = pStaPreAuthContext->authType;
+            limDeletePreAuthNode(pMac, pHdr->sa);
         }
-       goto sendIndToSme;
+        else
+            authType = pStaDs->mlmStaContext.authType;
+
+        updateContext = true;
+
+        if (dphInitStaState(pMac, pHdr->sa, peerIdx, true, &psessionEntry->dph.dphHashTable) == NULL)   
+        {
+            limLog(pMac, LOGE, FL("could not Init STAid=%d"), peerIdx);
+            goto  error;
+        }
+
+
+        goto sendIndToSme;
     } // end if (lookup for STA in perStaDs fails)
 
 
@@ -1137,8 +1141,9 @@ if (limPopulateMatchingRateSet(pMac,
                              subType, true, authType, peerIdx, true,
                              (tSirResultCodes) eSIR_MAC_UNSPEC_FAILURE_STATUS, psessionEntry);
 
-        pAssocReq = psessionEntry->parsedAssocReq[pStaDs->assocId];
-        goto error;
+        /*return it from here rather than goto error statement.This is done as the memory is getting free twice*/
+        return;
+        //goto error;
     }
 
     palCopyMemory( pMac->hHdd, (tANI_U8 *) &pStaDs->mlmStaContext.propRateSet,
@@ -1181,21 +1186,14 @@ if (limPopulateMatchingRateSet(pMac,
                  * STA when UPASD is not supported.
                  */
                 limLog( pMac, LOGE, FL( "AP do not support UPASD REASSOC Failed" ));
-                /* During wlan fuzz tests for softAP when mal-formed assoc req is
-                 * sent to AP due to delSTA is not done in firmnware UMAC is
-                 * stuck in some bad state.if we set this flag delsta will happen
-                 * and UMAC will recover*/
-                if (updateContext)
-                {
-                    pStaDs->mlmStaContext.updateContext = 1;
-                }
                 limRejectAssociation(pMac, pHdr->sa,
                                      subType, true, authType, peerIdx, true,
                                      (tSirResultCodes) eSIR_MAC_WME_REFUSED_STATUS, psessionEntry);
 
 
-                pAssocReq = psessionEntry->parsedAssocReq[pStaDs->assocId];
-                goto error;
+                /*return it from here rather than goto error statement.This is done as the memory is getting free twice in this uapsd scenario*/
+                return;
+                //goto error;
             }
             else
             {
@@ -1244,8 +1242,9 @@ if (limPopulateMatchingRateSet(pMac,
                                   true, pStaDs->mlmStaContext.authType, pStaDs->assocId, true,
                                   (tSirResultCodes) eSIR_MAC_UNSPEC_FAILURE_STATUS, psessionEntry);
 
-            pAssocReq = psessionEntry->parsedAssocReq[pStaDs->assocId];
-            goto error;
+            /*return it from here rather than goto error statement.This is done as the memory is getting free twice*/
+            return;
+            //goto error;
         }
     }
     else
@@ -1267,7 +1266,6 @@ if (limPopulateMatchingRateSet(pMac,
 
                 //Restoring the state back.
                 pStaDs->mlmStaContext.mlmState = mlmPrevState;
-                pAssocReq = psessionEntry->parsedAssocReq[pStaDs->assocId];
                 goto error;
             }
         }
@@ -1283,7 +1281,6 @@ if (limPopulateMatchingRateSet(pMac,
 
                     //Restoring the state back.
                     pStaDs->mlmStaContext.mlmState = mlmPrevState;
-                    pAssocReq = psessionEntry->parsedAssocReq[pStaDs->assocId];
                     goto error;
             }
 

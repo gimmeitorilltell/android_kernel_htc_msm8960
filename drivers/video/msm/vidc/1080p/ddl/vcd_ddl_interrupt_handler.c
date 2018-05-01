@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -408,7 +408,7 @@ static u32 ddl_decoder_seq_done_callback(struct ddl_context *ddl_context,
 						seq_hdr_info.dec_frm_size);
 				}
 			}
-			DDL_MSG_INFO("profile %u level %u progressive %u",
+			DDL_MSG_HIGH("profile %u level %u progressive %u",
 					decoder->profile.profile,
 					decoder->level.level,
 					decoder->progressive_only);
@@ -1288,18 +1288,20 @@ static u32 ddl_decoder_output_done_callback(
 				&dec_disp_info->tag_top,
 				&dec_disp_info->tag_bottom);
 			if (dec_disp_info->display_correct ==
-				VIDC_1080P_DECODE_NOT_CORRECT ||
-				dec_disp_info->display_correct ==
-				VIDC_1080P_DECODE_APPROX_CORRECT)
+					VIDC_1080P_DECODE_NOT_CORRECT)
 				output_vcd_frm->flags |=
 					VCD_FRAME_FLAG_DATACORRUPT;
+			else
+				output_vcd_frm->flags &=
+					~VCD_FRAME_FLAG_DATACORRUPT;
 		} else {
 			if (dec_disp_info->decode_correct ==
-				VIDC_1080P_DECODE_NOT_CORRECT ||
-				dec_disp_info->decode_correct ==
-				VIDC_1080P_DECODE_APPROX_CORRECT)
+					VIDC_1080P_DECODE_NOT_CORRECT)
 				output_vcd_frm->flags |=
 					VCD_FRAME_FLAG_DATACORRUPT;
+			else
+				output_vcd_frm->flags &=
+					~VCD_FRAME_FLAG_DATACORRUPT;
 		}
 		if (decoder->codec.codec != VCD_CODEC_H264 &&
 			decoder->codec.codec != VCD_CODEC_MPEG2 &&

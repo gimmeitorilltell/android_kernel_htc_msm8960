@@ -349,11 +349,6 @@ ip6t_do_table(struct sk_buff *skb,
 	local_bh_disable();
 	addend = xt_write_recseq_begin();
 	private = table->private;
-	/*
-	 * Ensure we load private-> members after we've fetched the base
-	 * pointer.
-	 */
-	smp_read_barrier_depends();
 	cpu        = smp_processor_id();
 	table_base = private->entries[cpu];
 	jumpstack  = (struct ip6t_entry **)private->jumpstack[cpu];
@@ -526,8 +521,6 @@ mark_source_chains(const struct xt_table_info *newinfo,
 				size = e->next_offset;
 				e = (struct ip6t_entry *)
 					(entry0 + pos + size);
-				if (pos + size >= newinfo->size)
-					return 0;
 				e->counters.pcnt = pos;
 				pos += size;
 			} else {
@@ -549,8 +542,6 @@ mark_source_chains(const struct xt_table_info *newinfo,
 				} else {
 					/* ... this is a fallthru */
 					newpos = pos + e->next_offset;
-					if (newpos >= newinfo->size)
-						return 0;
 				}
 				e = (struct ip6t_entry *)
 					(entry0 + newpos);

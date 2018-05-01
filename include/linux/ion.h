@@ -2,7 +2,7 @@
  * include/linux/ion.h
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2012, 2014 The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -243,11 +243,19 @@ void *ion_map_kernel(struct ion_client *client, struct ion_handle *handle);
 void ion_unmap_kernel(struct ion_client *client, struct ion_handle *handle);
 
 /**
- * ion_share_dma_buf() - given an ion client, create a dma-buf fd
+ * ion_share_dma_buf() - share buffer as dma-buf
  * @client:	the client
  * @handle:	the handle
  */
-int ion_share_dma_buf(struct ion_client *client, struct ion_handle *handle);
+struct dma_buf *ion_share_dma_buf(struct ion_client *client,
+						struct ion_handle *handle);
+
+/**
+ * ion_share_dma_buf_fd() - given an ion client, create a dma-buf fd
+ * @client:	the client
+ * @handle:	the handle
+ */
+int ion_share_dma_buf_fd(struct ion_client *client, struct ion_handle *handle);
 
 /**
  * ion_import_dma_buf() - given an dma-buf fd from the ion exporter get handle
@@ -378,6 +386,10 @@ int ion_unsecure_heap(struct ion_device *dev, int heap_id, int version,
 int msm_ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *vaddr, unsigned long len, unsigned int cmd);
 
+
+
+struct ion_handle *ion_dma_buf_to_handle(struct ion_client *client,
+					 struct dma_buf *dmabuf);
 #else
 static inline void ion_reserve(struct ion_platform_data *data)
 {
@@ -485,6 +497,14 @@ static inline int msm_ion_do_cache_op(struct ion_client *client,
 	return -ENODEV;
 }
 
+static inline struct ion_handle *ion_dma_buf_to_handle(
+					struct ion_client *client,
+					struct dma_buf *dmabuf)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+
 #endif /* CONFIG_ION */
 #endif /* __KERNEL__ */
 
@@ -515,13 +535,6 @@ struct ion_allocation_data {
 	struct ion_handle *handle;
 };
 
-
-struct ion_allocation_data_compat {
-	size_t len;
-	size_t align;
-	unsigned int flags;
-	struct ion_handle *handle;
-};
 /**
  * struct ion_fd_data - metadata passed to/from userspace for a handle/fd pair
  * @handle:	a handle
@@ -557,19 +570,6 @@ struct ion_custom_data {
 	unsigned int cmd;
 	unsigned long arg;
 };
-
-struct ion_flush_data {
-        struct ion_handle *handle;
-        int fd;
-        void *vaddr;
-        unsigned int offset;
-        unsigned int length;
-};
-struct ion_flag_data {
-        struct ion_handle *handle;
-        unsigned long flags;
-};
-
 #define ION_IOC_MAGIC		'I'
 
 /**
@@ -581,9 +581,6 @@ struct ion_flag_data {
 #define ION_IOC_ALLOC		_IOWR(ION_IOC_MAGIC, 0, \
 				      struct ion_allocation_data)
 
-
-#define ION_IOC_ALLOC_COMPAT		_IOWR(ION_IOC_MAGIC, 0, \
-				      struct ion_allocation_data_compat)
 /**
  * DOC: ION_IOC_FREE - free memory
  *
@@ -620,7 +617,6 @@ struct ion_flag_data {
  * filed set to the corresponding opaque handle.
  */
 #define ION_IOC_IMPORT		_IOWR(ION_IOC_MAGIC, 5, struct ion_fd_data)
-#define ION_IOC_IMPORT_COMPAT		_IOWR(ION_IOC_MAGIC, 5, int)
 
 /**
  * DOC: ION_IOC_CUSTOM - call architecture specific ion ioctl
@@ -630,13 +626,5 @@ struct ion_flag_data {
  */
 #define ION_IOC_CUSTOM		_IOWR(ION_IOC_MAGIC, 6, struct ion_custom_data)
 
-#define ION_IOC_CLEAN_CACHES_COMPAT    _IOWR(ION_IOC_MAGIC, 7, \
-                                                struct ion_flush_data)
-#define ION_IOC_INV_CACHES_COMPAT      _IOWR(ION_IOC_MAGIC, 8, \
-                                                struct ion_flush_data)
-#define ION_IOC_CLEAN_INV_CACHES_COMPAT       _IOWR(ION_IOC_MAGIC, 9, \
-                                                struct ion_flush_data)
-#define ION_IOC_GET_FLAGS_COMPAT               _IOWR(ION_IOC_MAGIC, 10, \
-                                                struct ion_flag_data)
 
 #endif /* _LINUX_ION_H */

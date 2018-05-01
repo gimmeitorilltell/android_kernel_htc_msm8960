@@ -1320,6 +1320,7 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size)
 	mutex_lock(&buffer->mutex);
 	get_online_cpus();
 
+
 	if (size < buffer_size) {
 
 		/* easy case, just free pages */

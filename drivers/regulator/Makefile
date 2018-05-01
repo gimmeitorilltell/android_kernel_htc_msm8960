@@ -44,7 +44,6 @@ obj-$(CONFIG_REGULATOR_TPS65217) += tps65217-regulator.o
 obj-$(CONFIG_REGULATOR_TPS6524X) += tps6524x-regulator.o
 obj-$(CONFIG_REGULATOR_TPS6586X) += tps6586x-regulator.o
 obj-$(CONFIG_REGULATOR_TPS65910) += tps65910-regulator.o
-obj-$(CONFIG_REGULATOR_AAT2870) += aat2870-regulator.o
 obj-$(CONFIG_REGULATOR_PMIC8058) += pmic8058-regulator.o
 obj-$(CONFIG_REGULATOR_PMIC8901) += pmic8901-regulator.o
 obj-$(CONFIG_REGULATOR_MSM_GPIO) += msm-gpio-regulator.o
@@ -60,6 +59,5 @@ obj-$(CONFIG_REGULATOR_WM8350) += wm8350-regulator.o
 obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
 obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
 obj-$(CONFIG_REGULATOR_QPNP) += qpnp-regulator.o
-obj-$(CONFIG_REGULATOR_NCP6924) += ncp6924.o
 
 ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG

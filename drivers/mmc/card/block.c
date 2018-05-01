@@ -57,7 +57,6 @@ MODULE_ALIAS("mmc:block");
 #define INAND_CMD38_ARG_SECERASE 0x80
 #define INAND_CMD38_ARG_SECTRIM1 0x81
 #define INAND_CMD38_ARG_SECTRIM2 0x88
-#define MMC_BLK_TIMEOUT_MS  (30 * 1000)        /* 30 sec timeout */
 
 #define MMC_SANITIZE_REQ_TIMEOUT 240000 /* msec */
 
@@ -490,7 +489,7 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	md = mmc_blk_get(bdev->bd_disk);
 	if (!md) {
 		err = -EINVAL;
-		goto blk_err;
+		goto cmd_done;
 	}
 
 	card = md->queue.card;
@@ -589,7 +588,6 @@ cmd_rel_host:
 
 cmd_done:
 	mmc_blk_put(md);
-blk_err:
 	kfree(idata->buf);
 	kfree(idata);
 	return err;
@@ -985,6 +983,7 @@ out:
 	return err ? 0 : 1;
 }
 
+#ifdef CONFIG_MMC_SECDISCARD
 static int mmc_blk_issue_secdiscard_rq(struct mmc_queue *mq,
 				       struct request *req)
 {
@@ -1050,7 +1049,7 @@ out:
 
 	return err ? 0 : 1;
 }
-
+#endif
 static int mmc_blk_issue_sanitize_rq(struct mmc_queue *mq,
 				      struct request *req)
 {
@@ -1072,7 +1071,7 @@ static int mmc_blk_issue_sanitize_rq(struct mmc_queue *mq,
 	pr_debug("%s: %s - SANITIZE IN PROGRESS...\n",
 		mmc_hostname(card->host), __func__);
 
-	err = mmc_switch_ignore_timeout(card, EXT_CSD_CMD_SET_NORMAL,
+	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 					EXT_CSD_SANITIZE_START, 1,
 					MMC_SANITIZE_REQ_TIMEOUT);
 
@@ -1187,9 +1186,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 	 */
 	if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
 		u32 status;
-		unsigned long timeout;
-
-		timeout = jiffies + msecs_to_jiffies(MMC_BLK_TIMEOUT_MS);
 
 		/* Check stop command response */
 		if (brq->stop.resp[0] & R1_ERROR) {
@@ -1204,17 +1200,6 @@ static int mmc_blk_err_check(struct mmc_card *card,
 			if (err) {
 				pr_err("%s: error %d requesting status\n",
 				       req->rq_disk->disk_name, err);
-				return MMC_BLK_CMD_ERR;
-			}
-
-			/* Timeout if the device never becomes ready for data
-			 * and never leaves the program state.
-			 */
-			if (time_after(jiffies, timeout)) {
-				pr_err("%s: Card stuck in programming state!"\
-					" %s %s\n", mmc_hostname(card->host),
-					req->rq_disk->disk_name, __func__);
-
 				return MMC_BLK_CMD_ERR;
 			}
 
@@ -2101,11 +2086,10 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = md->queue.card;
 
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
-	mmc_claim_host(card->host);
 	if (mmc_bus_needs_resume(card->host)) {
 		mmc_resume_bus(card->host);
+		mmc_blk_set_blksize(md, card);
 	}
-	mmc_release_host(card->host);
 #endif
 
 	if (req && !mq->mqrq_prev->req) {
@@ -2135,10 +2119,12 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		/* complete ongoing async transfer before issuing discard */
 		if (card->host->areq)
 			mmc_blk_issue_rw_rq(mq, NULL);
+#ifdef CONFIG_MMC_SECDISCARD
 		if (req->cmd_flags & REQ_SECURE &&
 			!(card->quirks & MMC_QUIRK_SEC_ERASE_TRIM_BROKEN))
 			ret = mmc_blk_issue_secdiscard_rq(mq, req);
 		else
+#endif
 			ret = mmc_blk_issue_discard_rq(mq, req);
 	} else if (req && req->cmd_flags & REQ_FLUSH) {
 		/* complete ongoing async transfer before issuing flush */
@@ -2517,7 +2503,6 @@ static const struct mmc_fixup blk_fixups[] =
 	/* Some INAND MCP devices advertise incorrect timeout values */
 	MMC_FIXUP("SEM04G", 0x45, CID_OEMID_ANY, add_quirk_mmc,
 		  MMC_QUIRK_INAND_DATA_TIMEOUT),
-
 	/*
 	 * On these Samsung MoviNAND parts, performing secure erase or
 	 * secure trim can result in unrecoverable corruption due to a
@@ -2608,27 +2593,14 @@ static int mmc_blk_suspend(struct mmc_card *card)
 {
 	struct mmc_blk_data *part_md;
 	struct mmc_blk_data *md = mmc_get_drvdata(card);
-	int rc = 0;
 
 	if (md) {
-		rc = mmc_queue_suspend(&md->queue);
-		if (rc)
-			goto out;
+		mmc_queue_suspend(&md->queue);
 		list_for_each_entry(part_md, &md->part, part) {
-			rc = mmc_queue_suspend(&part_md->queue);
-			if (rc)
-				goto out_resume;
+			mmc_queue_suspend(&part_md->queue);
 		}
 	}
-	goto out;
-
- out_resume:
-	mmc_queue_resume(&md->queue);
-	list_for_each_entry(part_md, &md->part, part) {
-		mmc_queue_resume(&part_md->queue);
-	}
- out:
-	return rc;
+	return 0;
 }
 
 static int mmc_blk_resume(struct mmc_card *card)

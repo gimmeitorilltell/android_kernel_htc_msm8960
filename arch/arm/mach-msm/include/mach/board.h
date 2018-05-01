@@ -26,9 +26,6 @@
 #include <linux/of_platform.h>
 #include <linux/msm_ssbi.h>
 #include <mach/msm_bus.h>
-#ifdef CONFIG_MACH_HTC
-#include <mach/board-ext-htc.h>
-#endif
 
 struct msm_camera_io_ext {
 	uint32_t mdcphy;
@@ -64,18 +61,20 @@ struct msm_camera_device_platform_data {
 	struct msm_camera_io_ext ioext;
 	struct msm_camera_io_clk ioclk;
 	uint8_t csid_core;
-#ifdef CONFIG_MACH_HTC
-	uint8_t is_csiphy;
-	uint8_t is_csic;
-	uint8_t is_csid;
-	uint8_t is_ispif;
-#endif
 	uint8_t is_vpe;
 	struct msm_bus_scale_pdata *cam_bus_scale_table;
-#ifdef CONFIG_MACH_HTC
-	int (*camera_csi_on) (void);
-	int (*camera_csi_off)(void);
-#endif
+};
+enum msm_camera_csi_data_format {
+	CSI_8BIT,
+	CSI_10BIT,
+	CSI_12BIT,
+};
+struct msm_camera_csi_params {
+	enum msm_camera_csi_data_format data_format;
+	uint8_t lane_cnt;
+	uint8_t lane_assign;
+	uint8_t settle_cnt;
+	uint8_t dpcm_scheme;
 };
 
 #ifdef CONFIG_SENSORS_MT9T013
@@ -141,9 +140,6 @@ struct msm_camera_sensor_flash_led {
 
 struct msm_camera_sensor_flash_src {
 	int flash_sr_type;
-#ifdef CONFIG_MACH_HTC
-	int (*camera_flash)(int level);
-#endif
 
 	union {
 		struct msm_camera_sensor_flash_pmic pmic_src;
@@ -184,16 +180,37 @@ enum msm_sensor_type {
 	YUV_SENSOR,
 };
 
+#ifdef CONFIG_MSM_CAMERA
+enum camera_vreg_type {
+       REG_LDO,
+       REG_VS,
+       REG_GPIO,
+       REG_MAX
+};
+
+struct camera_vreg_t {
+       const char *reg_name;
+       enum camera_vreg_type type;
+       int min_voltage;
+       int max_voltage;
+       int op_mode;
+};
+#endif
+
 struct msm_gpio_set_tbl {
 	unsigned gpio;
 	unsigned long flags;
 	uint32_t delay;
 };
 
+#ifdef CONFIG_MSM_CAMERA
 struct msm_camera_csi_lane_params {
 	uint16_t csi_lane_assign;
 	uint16_t csi_lane_mask;
-	uint8_t csi_phy_sel;
+};
+#endif
+struct msm_camera_gpio_num_info {
+	uint16_t gpio_num[2];
 };
 
 struct msm_camera_gpio_conf {
@@ -210,10 +227,7 @@ struct msm_camera_gpio_conf {
 	uint8_t camera_off_table_size;
 	uint32_t *camera_on_table;
 	uint8_t camera_on_table_size;
-#ifdef CONFIG_MACH_HTC
-	uint16_t *cam_gpio_tbl;
-	uint8_t cam_gpio_tbl_size;
-#endif
+	struct msm_camera_gpio_num_info *gpio_num_info;
 };
 
 enum msm_camera_i2c_mux_mode {
@@ -228,13 +242,6 @@ struct msm_camera_i2c_conf {
 	enum msm_camera_i2c_mux_mode i2c_mux_mode;
 };
 
-enum msm_camera_vreg_name_t {
-	CAM_VDIG,
-	CAM_VIO,
-	CAM_VANA,
-	CAM_VAF,
-};
-
 struct msm_camera_sensor_platform_info {
 	int mount_angle;
 	int sensor_reset;
@@ -244,19 +251,6 @@ struct msm_camera_sensor_platform_info {
 	struct msm_camera_gpio_conf *gpio_conf;
 	struct msm_camera_i2c_conf *i2c_conf;
 	struct msm_camera_csi_lane_params *csi_lane_params;
-#ifdef CONFIG_MACH_HTC
-	int sensor_reset_enable;
-	int sensor_pwd;
-	int vcm_pwd;
-	int vcm_enable;
-	int privacy_light;
-	enum msm_camera_pixel_order_default pixel_order_default;
-	enum sensor_flip_mirror_info mirror_flip;
-	void *privacy_light_info;
-	enum sensor_mount_angle sensor_mount_angle;
-	bool ews_enable;
-	bool board_control_reset_pin;
-#endif
 };
 
 enum msm_camera_actuator_name {
@@ -277,27 +271,14 @@ struct msm_actuator_info {
 	int bus_id;
 	int vcm_pwd;
 	int vcm_enable;
-#ifdef CONFIG_MACH_HTC
-	int use_rawchip_af;
-	int otp_diviation;
-	void (*vcm_wa_vreg_on) (void);
-	void (*vcm_wa_vreg_off) (void);
-	void (*oisbinder_i2c_add_driver) (void* i2c_client);
-	void (*oisbinder_open_init) (void);
-	void (*oisbinder_power_down) (void);
-	int32_t (*oisbinder_act_set_ois_mode) (int ois_mode);
-	int32_t (*oisbinder_mappingTbl_i2c_write) (int startup_mode, void * sensor_actuator_info);
-#endif
 };
 
 struct msm_eeprom_info {
 	struct i2c_board_info const *board_info;
 	int bus_id;
-#ifndef CONFIG_MACH_HTC
 	int eeprom_reg_addr;
 	int eeprom_read_length;
 	int eeprom_i2c_slave_addr;
-#endif
 };
 
 struct msm_camera_sensor_info {
@@ -315,6 +296,7 @@ struct msm_camera_sensor_info {
 	uint8_t num_resources;
 	struct msm_camera_sensor_flash_data *flash_data;
 	int csi_if;
+	struct msm_camera_csi_params csi_params;
 	struct msm_camera_sensor_strobe_flash_data *strobe_flash_data;
 	char *eeprom_data;
 	enum msm_camera_type camera_type;
@@ -322,36 +304,7 @@ struct msm_camera_sensor_info {
 	struct msm_actuator_info *actuator_info;
 	int pmic_gpio_enable;
 	struct msm_eeprom_info *eeprom_info;
-#ifdef CONFIG_MACH_HTC
-	struct msm_camera_csi_params csi_params;
-	uint16_t num_actuator_info_table;
-	struct msm_actuator_info **actuator_info_table;
-	struct msm_camera_gpio_conf *gpio_conf;
-	int (*camera_power_on)(void);
-	int (*camera_power_off)(void);
-	void (*camera_yushanii_probed)(enum htc_camera_image_type_board);
-	enum htc_camera_image_type_board htc_image;
-	int use_rawchip;
-	int hdr_mode;
-	int video_hdr_capability;
-	void (*camera_clk_switch)(void);
-	int power_down_disable;
-	int full_size_preview;
-	int cam_select_pin;
-	int mirror_mode;
-	int (*camera_pm8058_power)(int);
-	struct camera_flash_cfg* flash_cfg;
-	int gpio_set_value_force;
-	int dev_node;
-	int camera_platform;
-	uint8_t led_high_enabled;
-	uint32_t kpi_sensor_start;
-	uint32_t kpi_sensor_end;
-	uint8_t (*preview_skip_frame)(void);
-	int sensor_cut;
-	int dual_camera;
-	struct clk* main_clk;
-#endif
+	char vendor_name[32];
 };
 
 struct msm_camera_board_info {
@@ -470,6 +423,16 @@ struct msm_panel_common_pdata {
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
 	int mdp_rev;
+	void *power_on_set_1;
+	void *power_on_set_2;
+	void *power_on_set_3;
+	ssize_t power_on_set_size_1;
+	ssize_t power_on_set_size_2;
+	ssize_t power_on_set_size_3;
+	void *power_off_set_1;
+	void *power_off_set_2;
+	ssize_t power_off_set_size_1;
+	ssize_t power_off_set_size_2;
 	u32 ov0_wb_size;  /* overlay0 writeback size */
 	u32 ov1_wb_size;  /* overlay1 writeback size */
 	u32 mem_hid;
@@ -477,7 +440,8 @@ struct msm_panel_common_pdata {
 	u32 splash_screen_addr;
 	u32 splash_screen_size;
 	char mdp_iommu_split_domain;
-	int (*mdp_gamma)(void);
+	void (*bl_pwm_disable)(void);
+	int (*bl_on_status)(void);
 };
 
 
@@ -533,6 +497,8 @@ struct mipi_dsi_panel_platform_data {
 	int fpga_ctrl_mode;
 	int fpga_3d_config_addr;
 	int *gpio;
+	int recovery_backlight;
+	int set_recovery_bl_done;
 	struct mipi_dsi_phy_ctrl *phy_ctrl_settings;
 	char dlane_swap;
 	void (*dsi_pwm_cfg)(void);
@@ -556,6 +522,7 @@ struct msm_fb_platform_data {
 	int (*allow_set_offset)(void);
 	char prim_panel_name[PANEL_NAME_MAX_LEN];
 	char ext_panel_name[PANEL_NAME_MAX_LEN];
+	int (*update_lcdc_lut)(void);
 };
 
 struct msm_hdmi_platform_data {
@@ -569,12 +536,7 @@ struct msm_hdmi_platform_data {
 	int (*gpio_config)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
-	bool (*source)(void);
 	bool is_mhl_enabled;
-#if defined(CONFIG_MACH_HTC) && defined(CONFIG_FB_MSM_HDMI_MHL)
-	mhl_driving_params *driving_params;
-	int driving_params_count;
-#endif
 };
 
 struct msm_mhl_platform_data {
@@ -607,9 +569,6 @@ struct msm_i2c_platform_data {
 	int use_gsbi_shared_mode;
 	int keep_ahb_clk_on;
 	void (*msm_i2c_config_gpio)(int iface, int config_type);
-#ifdef CONFIG_MACH_HTC
-	int share_uart_flag;
-#endif
 };
 
 struct msm_i2c_ssbi_platform_data {
@@ -677,7 +636,6 @@ void mpq8092_init_gpiomux(void);
 struct mmc_platform_data;
 int msm_add_sdcc(unsigned int controller,
 		struct mmc_platform_data *plat);
-int msm_add_uio(void);
 
 void msm_pm_register_irqs(void);
 struct msm_usb_host_platform_data;

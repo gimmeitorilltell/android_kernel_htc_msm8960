@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, 2013 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -193,10 +193,6 @@ static void ghsic_ctrl_connect_w(struct work_struct *w)
 		return;
 	}
 	set_bit(CH_OPENED, &port->bridge_sts);
-
-	if (port->cbits_tomodem)
-		ctrl_bridge_set_cbits(port->brdg.ch_id, port->cbits_tomodem);
-
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
 	cbits = ctrl_bridge_get_cbits_tohost(port->brdg.ch_id);
@@ -567,7 +563,7 @@ static ssize_t gctrl_read_stats(struct file *file, char __user *ubuf,
 
 		temp += scnprintf(buf + temp, DEBUG_BUF_SIZE - temp,
 				"\nName:        %s\n"
-				"#PORT:%d port: %p\n"
+				"#PORT:%d port: %pK\n"
 				"to_usbhost:    %lu\n"
 				"to_modem:      %lu\n"
 				"cpkt_drp_cnt:  %lu\n"

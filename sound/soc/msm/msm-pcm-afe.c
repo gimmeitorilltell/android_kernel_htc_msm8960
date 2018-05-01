@@ -34,17 +34,14 @@
 #include "msm-pcm-afe.h"
 #include "msm-pcm-q6.h"
 
-
 #define MIN_PERIOD_SIZE (128 * 2)
 #define MAX_PERIOD_SIZE (128 * 2 * 2 * 6)
-
 static struct snd_pcm_hardware msm_afe_hardware = {
 	.info =			(SNDRV_PCM_INFO_MMAP |
 				SNDRV_PCM_INFO_BLOCK_TRANSFER |
 				SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED),
-	.formats =              SNDRV_PCM_FMTBIT_S16_LE |
-				SNDRV_PCM_FMTBIT_S24_LE,
+	.formats =              SNDRV_PCM_FMTBIT_S16_LE,
 	.rates =                (SNDRV_PCM_RATE_8000 |
 				SNDRV_PCM_RATE_16000 |
 				SNDRV_PCM_RATE_48000),
@@ -52,11 +49,11 @@ static struct snd_pcm_hardware msm_afe_hardware = {
 	.rate_max =             48000,
 	.channels_min =         1,
 	.channels_max =         2,
-	.buffer_bytes_max =     MAX_PERIOD_SIZE * 64,
+	.buffer_bytes_max =     MAX_PERIOD_SIZE * 32,
 	.period_bytes_min =     MIN_PERIOD_SIZE,
 	.period_bytes_max =     MAX_PERIOD_SIZE,
-	.periods_min =          64,
-	.periods_max =          768,
+	.periods_min =          32,
+	.periods_max =          384,
 	.fifo_size =            0,
 };
 static enum hrtimer_restart afe_hrtimer_callback(struct hrtimer *hrt);
@@ -327,6 +324,7 @@ static int msm_afe_open(struct snd_pcm_substream *substream)
 		pr_debug("%s: Could not allocate memory\n", __func__);
 		mutex_unlock(&prtd->lock);
 		kfree(prtd);
+		runtime->private_data = NULL;
 		return -ENOMEM;
 	}
 	hrtimer_init(&prtd->hrt, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -410,6 +408,7 @@ done:
 	mutex_unlock(&prtd->lock);
 	prtd->prepared--;
 	kfree(prtd);
+	runtime->private_data = NULL;
 	return 0;
 }
 static int msm_afe_prepare(struct snd_pcm_substream *substream)

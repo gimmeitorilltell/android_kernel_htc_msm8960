@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -24,8 +24,7 @@
 #include "spsi.h"
 
 /* All BAM global IRQ sources */
-#define BAM_IRQ_ALL (BAM_DEV_IRQ_HRESP_ERROR | BAM_DEV_IRQ_ERROR |   \
-	BAM_DEV_IRQ_TIMER)
+#define BAM_IRQ_ALL (BAM_DEV_IRQ_HRESP_ERROR | BAM_DEV_IRQ_ERROR)
 
 /* BAM device state flags */
 #define BAM_STATE_INIT     (1UL << 1)
@@ -146,7 +145,7 @@ static irqreturn_t bam_isr(int irq, void *ctxt)
 				BAM_ID(dev), source, mask);
 
 		if ((source & (1UL << 31)) && (dev->props.callback)) {
-			SPS_DBG1("sps:bam_isr:bam=0x%x;callback for case %d.\n",
+			SPS_INFO("sps:bam_isr:bam=0x%x;callback for case %d.",
 				BAM_ID(dev), cb_case);
 			dev->props.callback(cb_case, dev->props.user);
 		}
@@ -166,8 +165,7 @@ static irqreturn_t bam_isr(int irq, void *ctxt)
 
 	list_for_each_entry(pipe, &dev->pipes_q, list) {
 		/* Check this pipe's bit in the source mask */
-		if (BAM_PIPE_IS_ASSIGNED(pipe)
-				&& (source & pipe->pipe_index_mask)) {
+		if ((source & pipe->pipe_index_mask)) {
 			/* This pipe has an interrupt pending */
 			pipe_handler(dev, pipe);
 			source &= ~pipe->pipe_index_mask;
@@ -1051,13 +1049,6 @@ int sps_bam_pipe_set_params(struct sps_bam *dev, u32 pipe_index, u32 options)
 		else {
 			pipe->sys.desc_cache =
 				vmalloc(pipe->desc_size + size);
-
-			if (pipe->sys.desc_cache == NULL) {
-				SPS_ERR("sps:No memory for pipe %d of BAM 0x%x",
-					pipe_index, BAM_ID(dev));
-				return -ENOMEM;
-			}
-
 			memset(pipe->sys.desc_cache, 0, pipe->desc_size + size);
 		}
 
@@ -1971,7 +1962,7 @@ int sps_bam_pipe_timer_ctrl(struct sps_bam *dev,
 			BAM_PIPE_TIMER_ONESHOT :
 			BAM_PIPE_TIMER_PERIODIC;
 		bam_pipe_timer_config(dev->base, pipe_index, mode,
-				    timer_ctrl->timeout_msec * 8);
+				    timer_ctrl->timeout_msec * 10);
 		break;
 	case SPS_TIMER_OP_RESET:
 		bam_pipe_timer_reset(dev->base, pipe_index);

@@ -1,4 +1,4 @@
-source "drivers/video/msm/sii9234/Kconfig"
+
 source "drivers/video/msm/vidc/Kconfig"
 
 config FB_MSM
@@ -37,6 +37,11 @@ config FB_MSM_TRIPLE_BUFFER
 
 config FB_MSM_MDP_HW
 	bool
+	default n
+
+config MDP_DEBUG_FS
+	depends on DEBUG_FS
+	bool "MDP Debug FS"
 	default n
 
 choice
@@ -216,10 +221,6 @@ config FB_MSM_MIPI_DSI_NT35516
 	bool
 	select FB_MSM_MIPI_DSI
 
-config FB_MSM_MIPI_DSI_NT35590
-	bool
-	select FB_MSM_MIPI_DSI
-
 config FB_MSM_MIPI_DSI_TC358764_DSI2LVDS
 	bool
 	select FB_MSM_MIPI_DSI
@@ -384,16 +385,6 @@ config FB_MSM_MIPI_NT35516_VIDEO_QHD_PT
 config FB_MSM_MIPI_NT35516_CMD_QHD_PT
         bool
         select FB_MSM_MIPI_DSI_NT35516
-        default n
-
-config FB_MSM_MIPI_NT35590_CMD_720P_PT
-        bool
-        select FB_MSM_MIPI_DSI_NT35590
-        default n
-
-config FB_MSM_MIPI_NT35590_VIDEO_720P_PT
-        bool
-        select FB_MSM_MIPI_DSI_NT35590
         default n
 
 config FB_MSM_MIPI_CHIMEI_WXGA

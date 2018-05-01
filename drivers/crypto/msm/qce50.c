@@ -696,6 +696,10 @@ static void _sha_complete(struct qce_device *pce_dev)
 	unsigned char digest[SHA256_DIGEST_SIZE];
 
 	areq = (struct ahash_request *) pce_dev->areq;
+	if (!areq) {
+		pr_err("sha operation error. areq is NULL\n");
+		return -ENXIO;
+	}
 	dma_unmap_sg(pce_dev->pdev, areq->src, pce_dev->src_nents,
 				DMA_TO_DEVICE);
 	memcpy(digest, (char *)(&pce_dev->ce_sps.result->auth_iv[0]),
@@ -2167,7 +2171,6 @@ int qce_aead_req(void *handle, struct qce_req *q_req)
 	ce_burst_size = pce_dev->ce_sps.ce_burst_size;
 	if (q_req->dir == QCE_ENCRYPT) {
 		q_req->cryptlen = areq->cryptlen;
-			totallen_in = q_req->cryptlen + areq->assoclen + ivsize;
 		if (q_req->mode == QCE_MODE_CCM) {
 			out_len = areq->cryptlen + authsize;
 			hw_pad_out = ALIGN(authsize, ce_burst_size) - authsize;
@@ -2176,13 +2179,17 @@ int qce_aead_req(void *handle, struct qce_req *q_req)
 		}
 	} else {
 		q_req->cryptlen = areq->cryptlen - authsize;
-		if (q_req->mode == QCE_MODE_CCM)
-			totallen_in = areq->cryptlen + areq->assoclen;
-		else
-			totallen_in = q_req->cryptlen + areq->assoclen + ivsize;
 		out_len = q_req->cryptlen;
 		hw_pad_out = authsize;
 	}
+
+	if ((q_req->cryptlen > UINT_MAX - areq->assoclen) ||
+		(q_req->cryptlen + areq->assoclen > UINT_MAX - ivsize)) {
+			pr_err("Integer overflow on total aead req length.\n");
+			return -EINVAL;
+	}
+
+	totallen_in = q_req->cryptlen + areq->assoclen + ivsize;
 
 	pce_dev->assoc_nents = count_sg(areq->assoc, areq->assoclen);
 	pce_dev->src_nents = count_sg(areq->src, areq->cryptlen);

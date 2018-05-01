@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,7 +27,6 @@
 #include <asm/atomic.h>
 #include <asm/page.h>
 #include <mach/msm_dcvs.h>
-#include <trace/events/mpdcvs_trace.h>
 
 #define CORE_HANDLE_OFFSET (0xA0)
 #define __err(f, ...) pr_err("MSM_DCVS: %s: " f, __func__, __VA_ARGS__)
@@ -549,7 +548,6 @@ static enum hrtimer_restart msm_dcvs_core_slack_timer(struct hrtimer *timer)
 					struct dcvs_core, slack_timer);
 	uint32_t ret1;
 
-	trace_printk("dcvs: Slack timer fired for core=%s\n", core->core_name);
 	/**
 	 * Timer expired, notify TZ
 	 * Dont care about the third arg.
@@ -1026,9 +1024,6 @@ int msm_dcvs_register_core(
 	uint32_t ret1;
 	uint32_t ret2;
 
-	if (!msm_dcvs_enabled)
-		return ret;
-
 	offset = get_core_offset(type, type_core_num);
 	if (offset < 0)
 		return ret;
@@ -1254,7 +1249,6 @@ int msm_dcvs_idle(int dcvs_core_id, enum msm_core_idle_state state,
 		if (ret < 0 && ret != -13)
 			__err("Error (%d) sending idle enter for %s\n",
 					ret, core->core_name);
-		trace_msm_dcvs_idle("idle_enter_exit", core->core_name, 1);
 		break;
 
 	case MSM_DCVS_IDLE_EXIT:
@@ -1264,10 +1258,6 @@ int msm_dcvs_idle(int dcvs_core_id, enum msm_core_idle_state state,
 			__err("Error (%d) sending idle exit for %s\n",
 					ret, core->core_name);
 		start_slack_timer(core, timer_interval_us);
-		trace_msm_dcvs_idle("idle_enter_exit", core->core_name, 0);
-		trace_msm_dcvs_iowait("iowait", core->core_name, iowaited);
-		trace_msm_dcvs_slack_time("slack_timer_dcvs", core->core_name,
-							timer_interval_us);
 		break;
 	}
 
@@ -1279,9 +1269,6 @@ static int __init msm_dcvs_late_init(void)
 {
 	struct kobject *module_kobj = NULL;
 	int ret = 0;
-
-	if (!msm_dcvs_enabled)
-		return ret;
 
 	module_kobj = kset_find_obj(module_kset, KBUILD_MODNAME);
 	if (!module_kobj) {
@@ -1349,7 +1336,6 @@ static int __init msm_dcvs_early_init(void)
 	ret = msm_dcvs_scm_init(SZ_32K);
 	if (ret) {
 		__err("Unable to initialize DCVS err=%d\n", ret);
-		msm_dcvs_enabled = 0;
 		goto done;
 	}
 

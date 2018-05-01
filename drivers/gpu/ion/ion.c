@@ -2,7 +2,8 @@
  * drivers/gpu/ion/ion.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2013, 2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2012, 2014, 2016, The Linux Foundation. All rights
+ * reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -35,8 +36,6 @@
 #include <linux/debugfs.h>
 #include <linux/dma-buf.h>
 #include <linux/msm_ion.h>
-#include <trace/events/kmem.h>
-
 
 #include <mach/iommu_domains.h>
 #include "ion_priv.h"
@@ -483,16 +482,9 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 		if (secure_allocation &&
 			(heap->type != (enum ion_heap_type) ION_HEAP_TYPE_CP))
 			continue;
-		trace_ion_alloc_buffer_start(client->name, heap->name, len,
-					     heap_mask, flags);
 		buffer = ion_buffer_create(heap, dev, len, align, flags);
-		trace_ion_alloc_buffer_end(client->name, heap->name, len,
-					   heap_mask, flags);
 		if (!IS_ERR_OR_NULL(buffer))
 			break;
-
-		trace_ion_alloc_buffer_fallback(client->name, heap->name, len,
-					    heap_mask, flags, PTR_ERR(buffer));
 		if (dbg_str_idx < MAX_DBG_STR_LEN) {
 			unsigned int len_left = MAX_DBG_STR_LEN-dbg_str_idx-1;
 			int ret_value = snprintf(&dbg_str[dbg_str_idx],
@@ -511,15 +503,10 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	}
 	up_read(&dev->lock);
 
-	if (buffer == NULL) {
-		trace_ion_alloc_buffer_fail(client->name, dbg_str, len,
-					    heap_mask, flags, -ENODEV);
+	if (buffer == NULL)
 		return ERR_PTR(-ENODEV);
-	}
 
 	if (IS_ERR(buffer)) {
-		trace_ion_alloc_buffer_fail(client->name, dbg_str, len,
-					    heap_mask, flags, PTR_ERR(buffer));
 		pr_debug("ION is unable to allocate 0x%x bytes (alignment: "
 			 "0x%x) from heap(s) %sfor client %s with heap "
 			 "mask 0x%x\n",
@@ -714,19 +701,6 @@ int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
 	struct ion_iommu_map *iommu_map;
 	int ret = 0;
 
-	if (IS_ERR_OR_NULL(client)) {
-		pr_err("%s: client pointer is invalid\n", __func__);
-		return -EINVAL;
-	}
-	if (IS_ERR_OR_NULL(handle)) {
-		pr_err("%s: handle pointer is invalid\n", __func__);
-		return -EINVAL;
-	}
-	if (IS_ERR_OR_NULL(handle->buffer)) {
-		pr_err("%s: buffer pointer is invalid\n", __func__);
-		return -EINVAL;
-	}
-
 	if (ION_IS_CACHED(flags)) {
 		pr_err("%s: Cannot map iommu as cached.\n", __func__);
 		return -EINVAL;
@@ -835,19 +809,6 @@ void ion_unmap_iommu(struct ion_client *client, struct ion_handle *handle,
 {
 	struct ion_iommu_map *iommu_map;
 	struct ion_buffer *buffer;
-
-	if (IS_ERR_OR_NULL(client)) {
-		pr_err("%s: client pointer is invalid\n", __func__);
-		return;
-	}
-	if (IS_ERR_OR_NULL(handle)) {
-		pr_err("%s: handle pointer is invalid\n", __func__);
-		return;
-	}
-	if (IS_ERR_OR_NULL(handle->buffer)) {
-		pr_err("%s: buffer pointer is invalid\n", __func__);
-		return;
-	}
 
 	mutex_lock(&client->lock);
 	buffer = handle->buffer;
@@ -973,7 +934,7 @@ static int ion_debug_client_show(struct seq_file *s, void *unused)
 						     node);
 		enum ion_heap_type type = handle->buffer->heap->type;
 
-		seq_printf(s, "%16.16s: %16x : %16d : %12p",
+		seq_printf(s, "%16.16s: %16x : %16d : %12pK",
 				handle->buffer->heap->name,
 				handle->buffer->size,
 				atomic_read(&handle->ref.refcount),
@@ -1349,19 +1310,19 @@ static int ion_share_set_flags(struct ion_client *client,
 }
 
 
-int ion_share_dma_buf(struct ion_client *client, struct ion_handle *handle)
+struct dma_buf *ion_share_dma_buf(struct ion_client *client,
+						struct ion_handle *handle)
 {
 	struct ion_buffer *buffer;
 	struct dma_buf *dmabuf;
 	bool valid_handle;
-	int fd;
 
 	mutex_lock(&client->lock);
 	valid_handle = ion_handle_validate(client, handle);
 	mutex_unlock(&client->lock);
 	if (!valid_handle) {
 		WARN(1, "%s: invalid handle passed to share.\n", __func__);
-		return -EINVAL;
+		return ERR_PTR(-EINVAL);
 	}
 
 	buffer = handle->buffer;
@@ -1369,31 +1330,40 @@ int ion_share_dma_buf(struct ion_client *client, struct ion_handle *handle)
 	dmabuf = dma_buf_export(buffer, &dma_buf_ops, buffer->size, O_RDWR);
 	if (IS_ERR(dmabuf)) {
 		ion_buffer_put(buffer);
-		return PTR_ERR(dmabuf);
+		return dmabuf;
 	}
+
+	return dmabuf;
+}
+EXPORT_SYMBOL(ion_share_dma_buf);
+
+int ion_share_dma_buf_fd(struct ion_client *client, struct ion_handle *handle)
+{
+	struct dma_buf *dmabuf;
+	int fd;
+
+	dmabuf = ion_share_dma_buf(client, handle);
+	if (IS_ERR(dmabuf))
+		return PTR_ERR(dmabuf);
+
 	fd = dma_buf_fd(dmabuf, O_CLOEXEC);
 	if (fd < 0)
 		dma_buf_put(dmabuf);
 
 	return fd;
 }
-EXPORT_SYMBOL(ion_share_dma_buf);
+EXPORT_SYMBOL(ion_share_dma_buf_fd);
 
-struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd)
+struct ion_handle *ion_dma_buf_to_handle(struct ion_client *client,
+					 struct dma_buf *dmabuf)
 {
-	struct dma_buf *dmabuf;
 	struct ion_buffer *buffer;
 	struct ion_handle *handle;
 
-	dmabuf = dma_buf_get(fd);
-	if (IS_ERR_OR_NULL(dmabuf))
-		return ERR_PTR(PTR_ERR(dmabuf));
 	/* if this memory came from ion */
-
 	if (dmabuf->ops != &dma_buf_ops) {
 		pr_err("%s: can not import dmabuf from another exporter\n",
 		       __func__);
-		dma_buf_put(dmabuf);
 		return ERR_PTR(-EINVAL);
 	}
 	buffer = dmabuf->priv;
@@ -1411,6 +1381,21 @@ struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd)
 	ion_handle_add(client, handle);
 end:
 	mutex_unlock(&client->lock);
+	return handle;
+
+}
+EXPORT_SYMBOL(ion_dma_buf_to_handle);
+
+struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd)
+{
+	struct dma_buf *dmabuf;
+	struct ion_handle *handle;
+
+	dmabuf = dma_buf_get(fd);
+	if (IS_ERR_OR_NULL(dmabuf))
+		return ERR_PTR(PTR_ERR(dmabuf));
+
+	handle = ion_dma_buf_to_handle(client, dmabuf);
 	dma_buf_put(dmabuf);
 	return handle;
 }
@@ -1436,24 +1421,6 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		pass_to_user(data.handle);
 		if (copy_to_user((void __user *)arg, &data, sizeof(data))) {
 			user_ion_free(client, data.handle);
-			return -EFAULT;
-		}
-		break;
-	}
-	case ION_IOC_ALLOC_COMPAT:
-	{
-		struct ion_allocation_data_compat data;
-
-		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
-			return -EFAULT;
-		data.handle = ion_alloc(client, data.len, data.align,
-					     ion_full_heap_mask, 0);
-
-		if (IS_ERR(data.handle))
-			return PTR_ERR(data.handle);
-
-		if (copy_to_user((void __user *)arg, &data, sizeof(data))) {
-			ion_free(client, data.handle);
 			return -EFAULT;
 		}
 		break;
@@ -1486,7 +1453,8 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret)
 			return ret;
 
-		data.fd = ion_share_dma_buf(client, data.handle);
+		data.fd = ion_share_dma_buf_fd(client, data.handle);
+
 		if (copy_to_user((void __user *)arg, &data, sizeof(data)))
 			return -EFAULT;
 		if (data.fd < 0)
@@ -1494,7 +1462,6 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	case ION_IOC_IMPORT:
-	case ION_IOC_IMPORT_COMPAT:
 	{
 		struct ion_fd_data data;
 		int ret = 0;
@@ -1530,19 +1497,15 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return dev->custom_ioctl(client, data.cmd, data.arg);
 	}
 	case ION_IOC_CLEAN_CACHES:
-	case ION_IOC_CLEAN_CACHES_COMPAT:
 		return client->dev->custom_ioctl(client,
 						ION_IOC_CLEAN_CACHES, arg);
 	case ION_IOC_INV_CACHES:
-	case ION_IOC_INV_CACHES_COMPAT:
 		return client->dev->custom_ioctl(client,
 						ION_IOC_INV_CACHES, arg);
 	case ION_IOC_CLEAN_INV_CACHES:
-	case ION_IOC_CLEAN_INV_CACHES_COMPAT:
 		return client->dev->custom_ioctl(client,
 						ION_IOC_CLEAN_INV_CACHES, arg);
 	case ION_IOC_GET_FLAGS:
-	case ION_IOC_GET_FLAGS_COMPAT:
 		return client->dev->custom_ioctl(client,
 						ION_IOC_GET_FLAGS, arg);
 	default:

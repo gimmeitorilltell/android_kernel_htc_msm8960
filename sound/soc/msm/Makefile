@@ -55,16 +55,15 @@ obj-$(CONFIG_SND_SOC_MSM8X60) += snd-soc-lpass-dma.o
 # for MSM 8960 sound card driver
 
 obj-$(CONFIG_SND_SOC_MSM_QDSP6_INTF) += qdsp6/
-snd-soc-qdsp6-objs := msm-dai-q6.o msm-pcm-q6.o msm-multi-ch-pcm-q6.o msm-lowlatency-pcm-q6.o msm-pcm-loopback.o msm-pcm-routing.o msm-dai-fe.o msm-compr-q6.o msm-dai-stub.o
+
+snd-soc-qdsp6-objs := msm-dai-q6.o msm-pcm-q6.o msm-multi-ch-pcm-q6.o msm-lowlatency-pcm-q6.o msm-pcm-routing.o msm-dai-fe.o msm-compr-q6.o msm-dai-stub.o
 obj-$(CONFIG_SND_SOC_MSM_QDSP6_HDMI_AUDIO) += msm-dai-q6-hdmi.o
 obj-$(CONFIG_SND_SOC_VOICE) += msm-pcm-voice.o msm-pcm-voip.o
 snd-soc-qdsp6-objs += msm-pcm-lpa.o msm-pcm-afe.o
 obj-$(CONFIG_SND_SOC_QDSP6) += snd-soc-qdsp6.o
 
-ifneq ($(CONFIG_MACH_HTC),y)
 snd-soc-msm8960-objs := msm8960.o apq8064.o msm8930.o mpq8064.o apq8064-i2s.o
 obj-$(CONFIG_SND_SOC_MSM8960) += snd-soc-msm8960.o
-endif
 
 # Generic MSM drivers
 snd-soc-hostless-pcm-objs := msm-pcm-hostless.o
@@ -84,4 +83,3 @@ obj-$(CONFIG_SND_SOC_MSM8974) += snd-soc-msm8974.o
 
 snd-soc-qdsp6v2-objs := msm-dai-fe.o msm-dai-stub.o
 obj-$(CONFIG_SND_SOC_QDSP6V2) += snd-soc-qdsp6v2.o
-

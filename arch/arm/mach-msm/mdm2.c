@@ -107,11 +107,6 @@ static void mdm_power_down_common(struct mdm_modem_drv *mdm_drv)
 
 	mdm_peripheral_disconnect(mdm_drv);
 
-#ifdef CONFIG_MACH_HTC
-	if (GPIO_IS_VALID(mdm_drv->ap2mdm_status_gpio))
-		gpio_set_value(mdm_drv->ap2mdm_status_gpio, 0);
-#endif
-
 	/* Wait for the modem to complete its power down actions. */
 	for (i = 20; i > 0; i--) {
 		if (gpio_get_value(mdm_drv->mdm2ap_status_gpio) == 0) {
@@ -143,14 +138,6 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 {
 	int i;
 	int pblrdy;
-	int kpd_direction_assert = 1,
-		kpd_direction_de_assert = 0;
-
-	if (mdm_drv->pdata->kpd_not_inverted) {
-		kpd_direction_assert = 0;
-		kpd_direction_de_assert = 1;
-	}
-
 	if (mdm_drv->power_on_count != 1) {
 		pr_err("%s:id %d: Calling fn when power_on_count != 1\n",
 			   __func__, mdm_drv->device_id);
@@ -166,44 +153,21 @@ static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
 	 * instead of just de-asserting it. No harm done if the modem was
 	 * powered down.
 	 */
-	if (!mdm_drv->pdata->no_reset_on_first_powerup)
-		mdm_toggle_soft_reset(mdm_drv);
-
+	mdm_toggle_soft_reset(mdm_drv);
 	/* If the device has a kpd pwr gpio then toggle it. */
 	if (GPIO_IS_VALID(mdm_drv->ap2mdm_kpdpwr_n_gpio)) {
 		/* Pull AP2MDM_KPDPWR gpio high and wait for PS_HOLD to settle,
 		 * then	pull it back low.
 		 */
-		pr_debug("%s: Pulling AP2MDM_KPDPWR gpio high\n", __func__);
+		pr_debug("%s:id %d: Pulling AP2MDM_KPDPWR gpio high\n",
+				 __func__, mdm_drv->device_id);
 		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 1);
-		gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 1);
 		msleep(1000);
 		gpio_direction_output(mdm_drv->ap2mdm_kpdpwr_n_gpio, 0);
-	} else
-		gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 1);
-
-#ifdef CONFIG_MACH_HTC
-	if (GPIO_IS_VALID(mdm_drv->ap2mdm_pmic_reset_n_gpio)) {
-		pr_debug("%s: Pulling AP2MDM_RESET_N gpio low\n", __func__);
-		gpio_direction_output(mdm_drv->ap2mdm_pmic_reset_n_gpio, 0);
-		usleep_range(5000, 10000);
-		pr_debug("%s: Pulling AP2MDM_RESET_N gpio high\n", __func__);
-		gpio_direction_output(mdm_drv->ap2mdm_pmic_reset_n_gpio, 1);
-		msleep(40);
 	}
 
-	if (GPIO_IS_VALID(mdm_drv->mdm2ap_hsic_ready_gpio)) {
-		gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 1);
-		for (i = 0; !gpio_get_value(mdm_drv->mdm2ap_hsic_ready_gpio)
-				&& i < 10; i++) {
-			msleep(10);
-			pr_debug("%s: Waiting for AP2MDM_HSIC_READY gpio\n",
-					__func__);
-		};
-		if (!gpio_get_value(mdm_drv->mdm2ap_hsic_ready_gpio))
-			pr_err("%s: AP2MDM_HSIC_READY timeout!\n", __func__);
-	}
-#endif
+	msleep(50);
+	gpio_direction_output(mdm_drv->ap2mdm_status_gpio, 1);
 
 	if (!GPIO_IS_VALID(mdm_drv->mdm2ap_pblrdy))
 		goto start_mdm_peripheral;

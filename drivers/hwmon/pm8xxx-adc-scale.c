@@ -25,109 +25,7 @@
    and provided to the battery driver in the units desired for
    their framework which is 0.1DegC. True resolution of 0.1DegC
    will result in the below table size to increase by 10 times */
-static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
-#ifdef CONFIG_MACH_HTC
-	{-200,	1671},
-	{-190,	1663},
-	{-180,	1654},
-	{-170,	1646},
-	{-160,	1636},
-	{-150,	1627},
-	{-140,	1617},
-	{-130,	1606},
-	{-120,	1595},
-	{-110,	1584},
-	{-100,	1572},
-	{-90,	1560},
-	{-80,	1548},
-	{-70,	1534},
-	{-60,	1521},
-	{-50,	1507},
-	{-40,	1492},
-	{-30,	1477},
-	{-20,	1462},
-	{-10,	1446},
-	{-0,	1430},
-	{10,	1413},
-	{20,	1396},
-	{30,	1379},
-	{40,	1361},
-	{50,	1343},
-	{60,	1325},
-	{70,	1306},
-	{80,	1287},
-	{90,	1267},
-	{100,	1248},
-	{110,	1228},
-	{120,	1208},
-	{130,	1188},
-	{140,	1168},
-	{150,	1147},
-	{160,	1127},
-	{170,	1106},
-	{180,	1086},
-	{190,	1065},
-	{200,	1044},
-	{210,	1024},
-	{220,	1004},
-	{230,	983},
-	{240,	963},
-	{250,	943},
-	{260,	923},
-	{270,	903},
-	{280,	884},
-	{290,	864},
-	{300,	845},
-	{310,	827},
-	{320,	808},
-	{330,	790},
-	{340,	772},
-	{350,	755},
-	{360,	738},
-	{370,	721},
-	{380,	704},
-	{390,	688},
-	{400,	672},
-	{410,	657},
-	{420,	642},
-	{430,	627},
-	{440,	613},
-	{450,	599},
-	{460,	585},
-	{470,	572},
-	{480,	559},
-	{490,	547},
-	{500,	535},
-	{510,	523},
-	{520,	511},
-	{530,	500},
-	{540,	489},
-	{550,	479},
-	{560,	469},
-	{570,	459},
-	{580,	449},
-	{590,	440},
-	{600,	431},
-	{610,	423},
-	{620,	414},
-	{630,	406},
-	{640,	398},
-	{650,	390},
-	{660,	383},
-	{670,	376},
-	{680,	369},
-	{690,	363},
-	{700,	356},
-	{710,	350},
-	{720,	344},
-	{730,	338},
-	{740,	333},
-	{750,	327},
-	{760,	322},
-	{770,	317},
-	{780,	312},
-	{790,	308}
-#else
+static struct pm8xxx_adc_map_pt def_adcmap_btm_threshold[] = {
 	{-300,	1642},
 	{-200,	1544},
 	{-100,	1414},
@@ -211,139 +109,9 @@ static const struct pm8xxx_adc_map_pt adcmap_btm_threshold[] = {
 	{770,	213},
 	{780,	208},
 	{790,	203}
-#endif
-};
-static struct pm8xxx_adc_map_table default_adcmap_btm = {
-	.table = adcmap_btm_threshold,
-	.size = ARRAY_SIZE(adcmap_btm_threshold),
 };
 
-static struct pm8xxx_adc_map_table *adcmap_btm_table = &default_adcmap_btm;
-
-static const struct pm8xxx_adc_map_pt adcmap_pa_therm[] = {
-#ifdef CONFIG_MACH_HTC
-	{1677,	-30},
-	{1671,	-29},
-	{1663,	-28},
-	{1656,	-27},
-	{1648,	-26},
-	{1640,	-25},
-	{1632,	-24},
-	{1623,	-23},
-	{1615,	-22},
-	{1605,	-21},
-	{1596,	-20},
-	{1586,	-19},
-	{1576,	-18},
-	{1565,	-17},
-	{1554,	-16},
-	{1543,	-15},
-	{1531,	-14},
-	{1519,	-13},
-	{1507,	-12},
-	{1494,	-11},
-	{1482,	-10},
-	{1468,	-9},
-	{1455,	-8},
-	{1441,	-7},
-	{1427,	-6},
-	{1412,	-5},
-	{1398,	-4},
-	{1383,	-3},
-	{1367,	-2},
-	{1352,	-1},
-	{1336,	0},
-	{1320,	1},
-	{1304,	2},
-	{1287,	3},
-	{1271,	4},
-	{1254,	5},
-	{1237,	6},
-	{1219,	7},
-	{1202,	8},
-	{1185,	9},
-	{1167,	10},
-	{1149,	11},
-	{1131,	12},
-	{1114,	13},
-	{1096,	14},
-	{1078,	15},
-	{1060,	16},
-	{1042,	17},
-	{1024,	18},
-	{1006,	19},
-	{988,	20},
-	{970,	21},
-	{952,	22},
-	{934,	23},
-	{917,	24},
-	{899,	25},
-	{882,	26},
-	{865,	27},
-	{848,	28},
-	{831,	29},
-	{814,	30},
-	{797,	31},
-	{781,	32},
-	{764,	33},
-	{748,	34},
-	{732,	35},
-	{717,	36},
-	{701,	37},
-	{686,	38},
-	{671,	39},
-	{656,	40},
-	{642,	41},
-	{627,	42},
-	{613,	43},
-	{599,	44},
-	{586,	45},
-	{572,	46},
-	{559,	47},
-	{546,	48},
-	{534,	49},
-	{522,	50},
-	{509,	51},
-	{498,	52},
-	{486,	53},
-	{475,	54},
-	{463,	55},
-	{452,	56},
-	{442,	57},
-	{431,	58},
-	{421,	59},
-	{411,	60},
-	{401,	61},
-	{392,	62},
-	{383,	63},
-	{374,	64},
-	{365,	65},
-	{356,	66},
-	{348,	67},
-	{339,	68},
-	{331,	69},
-	{323,	70},
-	{316,	71},
-	{308,	72},
-	{301,	73},
-	{294,	74},
-	{287,	75},
-	{280,	76},
-	{273,	77},
-	{267,	78},
-	{261,	79},
-	{255,	80},
-	{249,	81},
-	{243,	82},
-	{237,	83},
-	{232,	84},
-	{226,	85},
-	{221,	86},
-	{216,	87},
-	{211,	88},
-	{206,	89},
-	{201,	90}
-#else
+static struct pm8xxx_adc_map_pt def_adcmap_pa_therm[] = {
 	{1731,	-30},
 	{1726,	-29},
 	{1721,	-28},
@@ -500,10 +268,9 @@ static const struct pm8xxx_adc_map_pt adcmap_pa_therm[] = {
 	{51,	123},
 	{50,	124},
 	{49,	125}
-#endif
 };
 
-static const struct pm8xxx_adc_map_pt adcmap_ntcg_104ef_104fb[] = {
+static struct pm8xxx_adc_map_pt def_adcmap_ntcg_104ef_104fb[] = {
 	{696483,	-40960},
 	{649148,	-39936},
 	{605368,	-38912},
@@ -672,6 +439,40 @@ static const struct pm8xxx_adc_map_pt adcmap_ntcg_104ef_104fb[] = {
 	{419,		128000}
 };
 
+static struct pm8xxx_adc_map adcmap_btm_threshold = {
+	.pt = def_adcmap_btm_threshold,
+	.size = ARRAY_SIZE(def_adcmap_btm_threshold),
+};
+static struct pm8xxx_adc_map adcmap_pa_therm = {
+	.pt = def_adcmap_pa_therm,
+	.size = ARRAY_SIZE(def_adcmap_pa_therm),
+};
+static struct pm8xxx_adc_map adcmap_ntcg_104ef_104fb = {
+	.pt = def_adcmap_ntcg_104ef_104fb,
+	.size = ARRAY_SIZE(def_adcmap_ntcg_104ef_104fb),
+};
+
+void pm8xxx_set_adcmap_btm_threshold(void *pts, int size)
+{
+	adcmap_btm_threshold.pt = pts;
+	adcmap_btm_threshold.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_btm_threshold);
+
+void pm8xxx_set_adcmap_pa_therm(void *pts, int size)
+{
+	adcmap_pa_therm.pt = pts;
+	adcmap_pa_therm.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_pa_therm);
+
+void pm8xxx_set_adcmap_ntcg_104ef_104fb(void *pts, int size)
+{
+	adcmap_ntcg_104ef_104fb.pt = pts;
+	adcmap_ntcg_104ef_104fb.size = size;
+}
+EXPORT_SYMBOL(pm8xxx_set_adcmap_ntcg_104ef_104fb);
+
 static int32_t pm8xxx_adc_map_linear(const struct pm8xxx_adc_map_pt *pts,
 		uint32_t tablesize, int32_t input, int64_t *output)
 {
@@ -762,12 +563,6 @@ static int32_t pm8xxx_adc_map_batt_therm(const struct pm8xxx_adc_map_pt *pts,
 
 	return 0;
 }
-
-void pm8xxx_adc_set_adcmap_btm_table(struct pm8xxx_adc_map_table *adcmap_table)
-{
-	adcmap_btm_table = adcmap_table;
-}
-EXPORT_SYMBOL_GPL(pm8xxx_adc_set_adcmap_btm_table);
 
 int32_t pm8xxx_adc_scale_default(int32_t adc_code,
 		const struct pm8xxx_adc_properties *adc_properties,
@@ -861,8 +656,8 @@ int32_t pm8xxx_adc_scale_batt_therm(int32_t adc_code,
 			adc_properties, chan_properties);
 
 	return pm8xxx_adc_map_batt_therm(
-			adcmap_btm_threshold,
-			ARRAY_SIZE(adcmap_btm_threshold),
+			adcmap_btm_threshold.pt,
+			adcmap_btm_threshold.size,
 			bat_voltage,
 			&adc_chan_result->physical);
 }
@@ -879,8 +674,8 @@ int32_t pm8xxx_adc_scale_pa_therm(int32_t adc_code,
 			adc_properties, chan_properties);
 
 	return pm8xxx_adc_map_linear(
-			adcmap_pa_therm,
-			ARRAY_SIZE(adcmap_pa_therm),
+			adcmap_pa_therm.pt,
+			adcmap_pa_therm.size,
 			pa_voltage,
 			&adc_chan_result->physical);
 }
@@ -964,8 +759,8 @@ int32_t pm8xxx_adc_tdkntcg_therm(int32_t adc_code,
 	xo_thm = pm8xxx_adc_scale_ratiometric_calib(adc_code,
 			adc_properties, chan_properties);
 	xo_thm <<= 4;
-	pm8xxx_adc_map_linear(adcmap_ntcg_104ef_104fb,
-		ARRAY_SIZE(adcmap_ntcg_104ef_104fb),
+	pm8xxx_adc_map_linear(adcmap_ntcg_104ef_104fb.pt,
+		adcmap_ntcg_104ef_104fb.size,
 		xo_thm, &adc_chan_result->physical);
 
 	return 0;
@@ -979,8 +774,8 @@ int32_t pm8xxx_adc_batt_scaler(struct pm8xxx_adc_arb_btm_param *btm_param,
 	int rc;
 
 	rc = pm8xxx_adc_map_linear(
-		adcmap_btm_threshold,
-		ARRAY_SIZE(adcmap_btm_threshold),
+		adcmap_btm_threshold.pt,
+		adcmap_btm_threshold.size,
 		(btm_param->low_thr_temp),
 		&btm_param->low_thr_voltage);
 	if (rc)
@@ -993,8 +788,8 @@ int32_t pm8xxx_adc_batt_scaler(struct pm8xxx_adc_arb_btm_param *btm_param,
 		chan_properties->adc_graph[ADC_CALIB_RATIOMETRIC].adc_gnd;
 
 	rc = pm8xxx_adc_map_linear(
-		adcmap_btm_threshold,
-		ARRAY_SIZE(adcmap_btm_threshold),
+		adcmap_btm_threshold.pt,
+		adcmap_btm_threshold.size,
 		(btm_param->high_thr_temp),
 		&btm_param->high_thr_voltage);
 	if (rc)

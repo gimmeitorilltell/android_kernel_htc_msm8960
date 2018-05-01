@@ -24,6 +24,7 @@
 #include <linux/nmi.h>
 #include <linux/dmi.h>
 #include <linux/coresight.h>
+#include <linux/console.h>
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
@@ -116,14 +117,7 @@ void panic(const char *fmt, ...)
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
-#ifdef CONFIG_LGE_CRASH_HANDLER
-	set_kernel_crash_magic_number();
-	set_crash_store_enable();
-#endif
 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
-#ifdef CONFIG_LGE_CRASH_HANDLER
-	set_crash_store_disable();
-#endif
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing
@@ -138,6 +132,10 @@ void panic(const char *fmt, ...)
 	 * Do we want to call this before we try to display a message?
 	 */
 	crash_kexec(NULL);
+
+	/* print last_kmsg even after console suspend */
+	if (is_console_suspended())
+		resume_console();
 
 	/*
 	 * Note smp_send_stop is the usual smp shutdown function, which

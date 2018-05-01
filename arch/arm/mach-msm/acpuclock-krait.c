@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,7 +22,6 @@
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
 #include <linux/regulator/consumer.h>
-#include <linux/iopoll.h>
 
 #include <asm/mach-types.h>
 #include <asm/cpu.h>
@@ -45,10 +44,21 @@
 #define PRI_SRC_SEL_HFPLL	1
 #define PRI_SRC_SEL_HFPLL_DIV2	2
 
+#define SECCLKAGD		BIT(4)
+
 static DEFINE_MUTEX(driver_lock);
 static DEFINE_SPINLOCK(l2_lock);
 
-static struct drv_data drv;
+static struct drv_data {
+	struct acpu_level *acpu_freq_tbl;
+	const struct l2_level *l2_freq_tbl;
+	struct scalable *scalable;
+	struct hfpll_data *hfpll_data;
+	u32 bus_perf_client;
+	struct msm_bus_scale_pdata *bus_scale;
+	int boost_uv;
+	struct device *dev;
+} drv;
 
 static unsigned long acpuclk_krait_get_rate(int cpu)
 {
@@ -74,10 +84,20 @@ static void __cpuinit set_sec_clk_src(struct scalable *sc, u32 sec_src_sel)
 {
 	u32 regval;
 
+	/* 8064 Errata: disable sec_src clock gating during switch. */
 	regval = get_l2_indirect_reg(sc->l2cpmr_iaddr);
+	regval |= SECCLKAGD;
+	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
+	/* Program the MUX */
 	regval &= ~(0x3 << 2);
 	regval |= ((sec_src_sel & 0x3) << 2);
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
+	/* 8064 Errata: re-enabled sec_src clock gating. */
+	regval &= ~SECCLKAGD;
+	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
 	/* Wait for switch to complete. */
 	mb();
 	udelay(1);
@@ -132,14 +152,8 @@ static void hfpll_enable(struct scalable *sc, bool skip_regulators)
 	writel_relaxed(0x6, sc->hfpll_base + drv.hfpll_data->mode_offset);
 
 	/* Wait for PLL to lock. */
-	if (drv.hfpll_data->has_lock_status) {
-		u32 regval;
-		readl_tight_poll(sc->hfpll_base + drv.hfpll_data->status_offset,
-			   regval, regval & BIT(16));
-	} else {
-		mb();
-		udelay(60);
-	}
+	mb();
+	udelay(60);
 
 	/* Enable PLL output. */
 	writel_relaxed(0x7, sc->hfpll_base + drv.hfpll_data->mode_offset);
@@ -615,8 +629,9 @@ static void __cpuinit hfpll_init(struct scalable *sc,
 		writel_relaxed(drv.hfpll_data->droop_val,
 			       sc->hfpll_base + drv.hfpll_data->droop_offset);
 
-	/* Set an initial PLL rate. */
+	/* Set an initial rate and enable the PLL. */
 	hfpll_set_rate(sc, tgt_s);
+	hfpll_enable(sc, false);
 }
 
 static int __cpuinit rpm_regulator_init(struct scalable *sc, enum vregs vreg,
@@ -787,17 +802,13 @@ static int __cpuinit init_clock_sources(struct scalable *sc,
 	regval &= ~(0x3 << 6);
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
 
-	/* Enable and switch to the target clock source. */
-	if (tgt_s->src == HFPLL)
-		hfpll_enable(sc, false);
+	/* Switch to the target clock source. */
 	set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	sc->cur_speed = tgt_s;
 
 	return 0;
 }
 
-#ifndef CONFIG_ARCH_MSM8960
-#error this code here is dumb, keep it out.
 static void __cpuinit fill_cur_core_speed(struct core_speed *s,
 					  struct scalable *sc)
 {
@@ -848,29 +859,6 @@ static const struct acpu_level __cpuinit *find_min_acpu_level(void)
 
 	return NULL;
 }
-#else
-static const struct acpu_level __cpuinit *find_max_acpu_level(void)
-{
-	struct acpu_level *l, *rc = NULL;
-
-	for (l = drv.acpu_freq_tbl; l->speed.khz != 0; l++)
-		if (l->use_for_scaling)
-			rc = l;
-	return rc;
-}
-
-static const struct l2_level __init *find_max_l2_level(void)
-{
-	const struct acpu_level *l = NULL;
-
-	l = find_max_acpu_level();
-
-	if (l)
-		return &drv.l2_freq_tbl[l->l2_level];
-	else
-		return NULL;
-}
-#endif /* CONFIG_ARCH_MSM8960 */
 
 static int __cpuinit per_cpu_init(int cpu)
 {
@@ -884,7 +872,6 @@ static int __cpuinit per_cpu_init(int cpu)
 		goto err_ioremap;
 	}
 
-#ifndef CONFIG_ARCH_MSM8960
 	acpu_level = find_cur_acpu_level(cpu);
 	if (!acpu_level) {
 		acpu_level = find_min_acpu_level();
@@ -898,13 +885,7 @@ static int __cpuinit per_cpu_init(int cpu)
 		dev_dbg(drv.dev, "CPU%d is running at %lu KHz\n", cpu,
 			acpu_level->speed.khz);
 	}
-#else
-	acpu_level = find_max_acpu_level();
-	if (!acpu_level) {
-		ret = -ENODEV;
-		goto err_table;
-	}
-#endif /* CONFIG_ARCH_MSM8960 */
+
 	ret = regulator_init(sc, acpu_level);
 	if (ret)
 		goto err_regulators;
@@ -944,71 +925,18 @@ static void __init bus_init(const struct l2_level *l2_level)
 		dev_err(drv.dev, "initial bandwidth req failed (%d)\n", ret);
 }
 
-#ifdef CONFIG_USERSPACE_VOLTAGE_CONTROL
-
-#define USERCONTROL_MIN_VDD		 750
-#define USERCONTROL_MAX_VDD		1300
-#define NUM_FREQS			14
-
-ssize_t acpuclk_get_vdd_levels_str(char *buf)
-{
-	int i, len = 0;
-
-	if (buf) {
-		for (i = 0; drv.acpu_freq_tbl[i].speed.khz; i++) {
-			if (drv.acpu_freq_tbl[i].use_for_scaling) {
-				len += sprintf(buf + len, "%lumhz: %i mV\n", drv.acpu_freq_tbl[i].speed.khz/1000,
-						drv.acpu_freq_tbl[i].vdd_core/1000 );
-			}
-		}
-	}
-	return len;
-}
-
-ssize_t acpuclk_set_vdd(char *buf)
-{
-	int i = 0;
-	unsigned long volt_cur[NUM_FREQS] = {0};
-	int ret = 0;
-
-	if (buf) {
-		ret = sscanf(buf, "%lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu",// %lu",// %lu %lu %lu",
-				&volt_cur[0], &volt_cur[1], &volt_cur[2], &volt_cur[3], &volt_cur[4], &volt_cur[5], &volt_cur[6], &volt_cur[7], &volt_cur[8],
-				&volt_cur[9], &volt_cur[10], &volt_cur[11], &volt_cur[12], &volt_cur[13]);//, &volt_cur[14]);//, &volt_cur[15], &volt_cur[16], &volt_cur[17]);
-
-		if (ret != NUM_FREQS)
-			return -EINVAL;
-
-		for(i = 0; i < NUM_FREQS; i++) {
-			if(drv.acpu_freq_tbl[i].speed.khz != 0) {
-
-				if (volt_cur[i] < (unsigned long) USERCONTROL_MIN_VDD)
-					volt_cur[i] = (unsigned long) USERCONTROL_MIN_VDD;
-									if (volt_cur[i] > (unsigned long) USERCONTROL_MAX_VDD)
-										volt_cur[i] = (unsigned long) USERCONTROL_MAX_VDD;
-
-				drv.acpu_freq_tbl[i].vdd_core = volt_cur[i]*1000;
-
-			}
-		}
-	}
-	return ret;
-}
-#endif
-
 #ifdef CONFIG_CPU_FREQ_MSM
 static struct cpufreq_frequency_table freq_table[NR_CPUS][35];
 
 static void __init cpufreq_table_init(void)
 {
 	int cpu;
-	int freq_cnt = 0;
 
 	for_each_possible_cpu(cpu) {
-		int i;
+		int i, freq_cnt = 0;
 		/* Construct the freq_table tables from acpu_freq_tbl. */
-		for (i = 0, freq_cnt = 0; drv.acpu_freq_tbl[i].speed.khz != 0
-				&& freq_cnt < ARRAY_SIZE(*freq_table)-1; i++) {
+		for (i = 0; drv.acpu_freq_tbl[i].speed.khz != 0
+				&& freq_cnt < ARRAY_SIZE(*freq_table); i++) {
 			if (drv.acpu_freq_tbl[i].use_for_scaling) {
 				freq_table[cpu][freq_cnt].index = freq_cnt;
 				freq_table[cpu][freq_cnt].frequency
@@ -1022,11 +950,12 @@ static void __init cpufreq_table_init(void)
 		freq_table[cpu][freq_cnt].index = freq_cnt;
 		freq_table[cpu][freq_cnt].frequency = CPUFREQ_TABLE_END;
 
+		dev_info(drv.dev, "CPU%d: %d frequencies supported\n",
+			cpu, freq_cnt);
+
 		/* Register table with CPUFreq. */
 		cpufreq_frequency_table_get_attr(freq_table[cpu], cpu);
 	}
-
-	dev_info(drv.dev, "CPU Frequencies Supported: %d\n", freq_cnt);
 }
 #else
 static void __init cpufreq_table_init(void) {}
@@ -1057,11 +986,7 @@ static int __cpuinit acpuclk_cpu_callback(struct notifier_block *nfb,
 		/* Fall through. */
 	case CPU_UP_CANCELED:
 		acpuclk_krait_set_rate(cpu, hot_unplug_khz, SETRATE_HOTPLUG);
-
-		regulator_disable(sc->vreg[VREG_CORE].reg);
 		regulator_set_optimum_mode(sc->vreg[VREG_CORE].reg, 0);
-		regulator_set_voltage(sc->vreg[VREG_CORE].reg, 0,
-						sc->vreg[VREG_CORE].max_vdd);
 		break;
 	case CPU_UP_PREPARE:
 		if (!sc->initialized) {
@@ -1072,20 +997,10 @@ static int __cpuinit acpuclk_cpu_callback(struct notifier_block *nfb,
 		}
 		if (WARN_ON(!prev_khz[cpu]))
 			return NOTIFY_BAD;
-
-		rc = regulator_set_voltage(sc->vreg[VREG_CORE].reg,
-					sc->vreg[VREG_CORE].cur_vdd,
-					sc->vreg[VREG_CORE].max_vdd);
-		if (rc < 0)
-			return NOTIFY_BAD;
 		rc = regulator_set_optimum_mode(sc->vreg[VREG_CORE].reg,
 						sc->vreg[VREG_CORE].cur_ua);
 		if (rc < 0)
 			return NOTIFY_BAD;
-		rc = regulator_enable(sc->vreg[VREG_CORE].reg);
-		if (rc < 0)
-			return NOTIFY_BAD;
-
 		acpuclk_krait_set_rate(cpu, prev_khz[cpu], SETRATE_HOTPLUG);
 		break;
 	default:
@@ -1099,7 +1014,7 @@ static struct notifier_block __cpuinitdata acpuclk_cpu_notifier = {
 	.notifier_call = acpuclk_cpu_callback,
 };
 
-static const int __init krait_needs_vmin(void)
+static const int krait_needs_vmin(void)
 {
 	switch (read_cpuid_id()) {
 	case 0x511F04D0: /* KR28M2A20 */
@@ -1111,7 +1026,7 @@ static const int __init krait_needs_vmin(void)
 	};
 }
 
-static void __init krait_apply_vmin(struct acpu_level *tbl)
+static void krait_apply_vmin(struct acpu_level *tbl)
 {
 	for (; tbl->speed.khz != 0; tbl++) {
 		if (tbl->vdd_core < 1150000)
@@ -1120,78 +1035,62 @@ static void __init krait_apply_vmin(struct acpu_level *tbl)
 	}
 }
 
-void __init get_krait_bin_format_a(void __iomem *base, struct bin_info *bin)
+static int __init get_speed_bin(u32 pte_efuse)
 {
-	u32 pte_efuse = readl_relaxed(base);
+	uint32_t speed_bin;
 
-	bin->speed = pte_efuse & 0xF;
-	if (bin->speed == 0xF)
-		bin->speed = (pte_efuse >> 4) & 0xF;
-	bin->speed_valid = bin->speed != 0xF;
+	speed_bin = pte_efuse & 0xF;
+	if (speed_bin == 0xF)
+		speed_bin = (pte_efuse >> 4) & 0xF;
 
-	bin->pvs = (pte_efuse >> 10) & 0x7;
-	if (bin->pvs == 0x7)
-		bin->pvs = (pte_efuse >> 13) & 0x7;
-	bin->pvs_valid = bin->pvs != 0x7;
-}
-
-void __init get_krait_bin_format_b(void __iomem *base, struct bin_info *bin)
-{
-	u32 pte_efuse, redundant_sel;
-
-	pte_efuse = readl_relaxed(base);
-	redundant_sel = (pte_efuse >> 24) & 0x7;
-	bin->speed = pte_efuse & 0x7;
-	bin->pvs = (pte_efuse >> 6) & 0x7;
-
-	switch (redundant_sel) {
-	case 1:
-		bin->speed = (pte_efuse >> 27) & 0x7;
-		break;
-	case 2:
-		bin->pvs = (pte_efuse >> 27) & 0x7;
-		break;
+	if (speed_bin == 0xF) {
+		speed_bin = 0;
+		dev_warn(drv.dev, "SPEED BIN: Defaulting to %d\n", speed_bin);
+	} else {
+		dev_info(drv.dev, "SPEED BIN: %d\n", speed_bin);
 	}
-	bin->speed_valid = true;
 
-	/* Check PVS_BLOW_STATUS */
-	pte_efuse = readl_relaxed(base + 0x4);
-	bin->pvs_valid = !!(pte_efuse & BIT(21));
+	return speed_bin;
 }
 
-static struct pvs_table * __init select_freq_plan(
-		const struct acpuclk_krait_params *params)
+static int __init get_pvs_bin(u32 pte_efuse)
 {
-	void __iomem *pte_efuse_base;
-	struct bin_info bin;
+	uint32_t pvs_bin;
 
-	pte_efuse_base = ioremap(params->pte_efuse_phys, 8);
-	if (!pte_efuse_base) {
-		dev_err(drv.dev, "Unable to map PTE eFuse base\n");
+	pvs_bin = (pte_efuse >> 10) & 0x7;
+	if (pvs_bin == 0x7)
+		pvs_bin = (pte_efuse >> 13) & 0x7;
+
+	if (pvs_bin == 0x7) {
+		pvs_bin = 0;
+		dev_warn(drv.dev, "ACPU PVS: Defaulting to %d\n", pvs_bin);
+	} else {
+		dev_info(drv.dev, "ACPU PVS: %d\n", pvs_bin);
+	}
+
+	return pvs_bin;
+}
+
+static struct pvs_table * __init select_freq_plan(u32 pte_efuse_phys,
+			struct pvs_table (*pvs_tables)[NUM_PVS])
+{
+	void __iomem *pte_efuse;
+	u32 pte_efuse_val, tbl_idx, bin_idx;
+
+	pte_efuse = ioremap(pte_efuse_phys, 4);
+	if (!pte_efuse) {
+		dev_err(drv.dev, "Unable to map QFPROM base\n");
 		return NULL;
 	}
-	params->get_bin_info(pte_efuse_base, &bin);
-	iounmap(pte_efuse_base);
 
-	if (bin.speed_valid) {
-		drv.speed_bin = bin.speed;
-		dev_info(drv.dev, "SPEED BIN: %d\n", drv.speed_bin);
-	} else {
-		drv.speed_bin = 0;
-		dev_warn(drv.dev, "SPEED BIN: Defaulting to %d\n",
-			 drv.speed_bin);
-	}
+	pte_efuse_val = readl_relaxed(pte_efuse);
+	iounmap(pte_efuse);
 
-	if (bin.pvs_valid) {
-		drv.pvs_bin = bin.pvs;
-		dev_info(drv.dev, "ACPU PVS: %d\n", drv.pvs_bin);
-	} else {
-		drv.pvs_bin = 0;
-		dev_warn(drv.dev, "ACPU PVS: Defaulting to %d\n",
-			 drv.pvs_bin);
-	}
+	/* Select frequency tables. */
+	bin_idx = get_speed_bin(pte_efuse_val);
+	tbl_idx = get_pvs_bin(pte_efuse_val);
 
-	return &params->pvs_tables[drv.speed_bin][drv.pvs_bin];
+	return &pvs_tables[bin_idx][tbl_idx];
 }
 
 static void __init drv_data_init(struct device *dev,
@@ -1220,7 +1119,7 @@ static void __init drv_data_init(struct device *dev,
 		GFP_KERNEL);
 	BUG_ON(!drv.bus_scale->usecase);
 
-	pvs = select_freq_plan(params);
+	pvs = select_freq_plan(params->pte_efuse_phys, params->pvs_tables);
 	BUG_ON(!pvs->table);
 
 	drv.acpu_freq_tbl = kmemdup(pvs->table, pvs->size, GFP_KERNEL);
@@ -1250,7 +1149,6 @@ static void __init hw_init(void)
 				l2->vreg[VREG_HFPLL_B].max_vdd, false);
 	BUG_ON(rc);
 
-#ifndef CONFIG_ARCH_MSM8960
 	l2_level = find_cur_l2_level();
 	if (!l2_level) {
 		l2_level = drv.l2_freq_tbl;
@@ -1260,13 +1158,7 @@ static void __init hw_init(void)
 		dev_dbg(drv.dev, "L2 is running at %lu KHz\n",
 			l2_level->speed.khz);
 	}
-#else
-	l2_level = find_max_l2_level();
-	if (!l2_level) {
-		dev_err(drv.dev, "l2 init cannot find max L2 speed\n");
-		l2_level = drv.l2_freq_tbl;
-	}
-#endif
+
 	rc = init_clock_sources(l2, &l2_level->speed);
 	BUG_ON(rc);
 
@@ -1288,8 +1180,6 @@ int __init acpuclk_krait_init(struct device *dev,
 	dcvs_freq_init();
 	acpuclk_register(&acpuclk_krait_data);
 	register_hotcpu_notifier(&acpuclk_cpu_notifier);
-
-	acpuclk_krait_debug_init(&drv);
 
 	return 0;
 }

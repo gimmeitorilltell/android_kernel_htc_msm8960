@@ -14,6 +14,7 @@ obj-$(CONFIG_WM831X_POWER)	+= wm831x_power.o
 obj-$(CONFIG_WM8350_POWER)	+= wm8350_power.o
 obj-$(CONFIG_TEST_POWER)	+= test_power.o
 
+obj-$(CONFIG_CHARGER_SMB345)    += smb345-charger.o
 obj-$(CONFIG_BATTERY_DS2760)	+= ds2760_battery.o
 obj-$(CONFIG_BATTERY_DS2780)	+= ds2780_battery.o
 obj-$(CONFIG_BATTERY_DS2781)	+= ds2781_battery.o
@@ -54,14 +55,10 @@ obj-$(CONFIG_BATTERY_BQ27520)	+= bq27520_fuelgauger.o
 obj-$(CONFIG_BATTERY_BQ27541)	+= bq27541_fuelgauger.o
 obj-$(CONFIG_SMB137B_CHARGER)   += smb137b.o
 obj-$(CONFIG_PM8XXX_CCADC)	+= pm8xxx-ccadc.o
-ifeq ($(CONFIG_HTC_BATT_8960),y)
-obj-$(CONFIG_PM8921_BMS)	+= pm8921-bms-htc.o
-obj-$(CONFIG_PM8921_CHARGER)	+= pm8921-charger-htc.o
-else
 obj-$(CONFIG_PM8921_BMS)	+= pm8921-bms.o
 obj-$(CONFIG_PM8921_CHARGER)	+= pm8921-charger.o
-endif
 obj-$(CONFIG_LTC4088_CHARGER)	+= ltc4088-charger.o
 obj-$(CONFIG_CHARGER_SMB347)	+= smb347-charger.o
-obj-$(CONFIG_BATTERY_BCL)	+= battery_current_limit.o
-obj-$(CONFIG_AMP_RT5501)	+= pm8921-audio.o
+obj-$(CONFIG_BQ51051B_CHARGER)	+= bq51051b_charger.o
+obj-$(CONFIG_BATTERY_TEMP_CONTROL) += battery_temp_ctrl.o
+obj-$(CONFIG_BATTERY_ASUS_BQ27541)	+= bq27541_battery.o

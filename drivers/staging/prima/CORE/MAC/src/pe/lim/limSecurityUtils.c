@@ -609,7 +609,7 @@ limEncryptAuthFrame(tpAniSirGlobal pMac, tANI_U8 keyId, tANI_U8 *pKey, tANI_U8 *
  */
 
 void
-limComputeCrc32(tANI_U8 *pDest, tANI_U8 * pSrc, tANI_U8 len)
+limComputeCrc32(tANI_U8 *pDest, tANI_U8 * pSrc, tANI_U16 len)
 {
     tANI_U32 crc;
     int i;
@@ -1299,7 +1299,6 @@ tSirRetStatus      retCode;
         FL("Posting REMOVE_STAKEY to HAL failed, reason=%X"),
         retCode );
     palFreeMemory(pMac->hHdd, pRemoveStaKeyParams);
-    pRemoveStaKeyParams = NULL;
 
     // Respond to SME with LIM_MLM_REMOVEKEY_CNF
     mlmRemoveKeyCnf.resultCode = eSIR_SME_HAL_SEND_MESSAGE_FAIL;
@@ -1308,10 +1307,6 @@ tSirRetStatus      retCode;
     return;
 
 end:
-  if (pRemoveStaKeyParams)
-  {
-    palFreeMemory(pMac->hHdd, pRemoveStaKeyParams);
-  }
   limPostSmeRemoveKeyCnf( pMac,
       psessionEntry,
       pMlmRemoveKeyReq,

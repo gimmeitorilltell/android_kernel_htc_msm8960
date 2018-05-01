@@ -31,10 +31,6 @@ config QCOM_VOWIFI_11R
 	bool "Enable Fast Transition (11r) feature"
 	default n
 
-config QCOM_TDLS
-	bool "Enable TDLS feature"
-	default y
-
 config WLAN_FEATURE_RX_WAKELOCK
 	bool "Enable RX wake lock feature"
 	default n

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,25 +17,14 @@
 
 #define PM8XXX_CCADC_DEV_NAME "pm8xxx-ccadc"
 
-struct pm8xxx_ccadc_core_data {
-	unsigned int	batt_temp_channel;
-};
-
 /**
  * struct pm8xxx_ccadc_platform_data -
- * @ccadc_cdata:	core data for the ccadc driver containing channel info
- * @r_sense_uohm:		sense resistor value in (micro Ohms)
+ * @r_sense:		sense resistor value in (mOhms)
  * @calib_delay_ms:	how often should the adc calculate gain and offset
- * @periodic_wakeup:	a flag to indicate that this system wakeups periodically
- *			for calibration/other housekeeping activities. The ccadc
- *			does a quick calibration while resuming
  */
 struct pm8xxx_ccadc_platform_data {
-	struct pm8xxx_ccadc_core_data	ccadc_cdata;
-	int				r_sense_uohm;
 	int		r_sense;
-	unsigned int			calib_delay_ms;
-	bool				periodic_wakeup;
+	unsigned int	calib_delay_ms;
 };
 
 #define CCADC_READING_RESOLUTION_N	542535
@@ -77,24 +66,6 @@ void pm8xxx_calib_ccadc(void);
  *
  */
 int pm8xxx_ccadc_get_battery_current(int *bat_current);
-
-#ifdef CONFIG_MACH_HTC
-/**
- * pm8xxx_ccadc_dump_all - dump register contents to log
- *
- * RETURNS:	0
- */
-int pm8xxx_ccadc_dump_all(void);
-
-/**
- * pm8xxx_ccadc_get_attr_text - get registers contents as text string
- * @buf:	The pointer to the buffer
- * @size:	The size in bytes of the buffer
- *
- * RETURNS:	The length of the text string returned.
- */
-int pm8xxx_ccadc_get_attr_text(char *buf, int size);
-#endif /* CONFIG_MACH_HTC */
 #else
 static inline s64 pm8xxx_cc_adjust_for_gain(s64 uv)
 {
@@ -107,16 +78,6 @@ static inline int pm8xxx_ccadc_get_battery_current(int *bat_current)
 {
 	return -ENXIO;
 }
-#ifdef CONFIG_MACH_HTC
-static inline int pm8xxx_ccadc_dump_all(void)
-{
-	return -ENXIO;
-}
-static inline int pm8xxx_ccadc_get_attr_text(char *buf, int size)
-{
-	return -ENXIO;
-}
-#endif /* CONFIG_MACH_HTC */
 #endif
 
 #endif /* __PMIC8XXX_CCADC_H__ */

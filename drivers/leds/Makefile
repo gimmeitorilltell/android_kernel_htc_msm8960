@@ -18,12 +18,7 @@ obj-$(CONFIG_LEDS_COBALT_QUBE)		+= leds-cobalt-qube.o
 obj-$(CONFIG_LEDS_COBALT_RAQ)		+= leds-cobalt-raq.o
 obj-$(CONFIG_LEDS_SUNFIRE)		+= leds-sunfire.o
 obj-$(CONFIG_LEDS_PCA9532)		+= leds-pca9532.o
-ifeq ($(CONFIG_MACH_HTC),y)
-obj-$(CONFIG_LEDS_PM8XXX)		+= leds-pm8xxx-htc.o
-else
 obj-$(CONFIG_LEDS_PM8XXX)		+= leds-pm8xxx.o
-endif
-obj-$(CONFIG_LEDS_PM8038)		+= leds-pm8038.o
 obj-$(CONFIG_LEDS_QPNP)			+= leds-qpnp.o
 obj-$(CONFIG_LEDS_GPIO_REGISTER)	+= leds-gpio-register.o
 obj-$(CONFIG_LEDS_GPIO)			+= leds-gpio.o
@@ -71,6 +66,3 @@ obj-$(CONFIG_LEDS_TRIGGER_BACKLIGHT)	+= ledtrig-backlight.o
 obj-$(CONFIG_LEDS_TRIGGER_GPIO)		+= ledtrig-gpio.o
 obj-$(CONFIG_LEDS_TRIGGER_DEFAULT_ON)	+= ledtrig-default-on.o
 obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
-
-# Flashlight Drivers
-obj-$(CONFIG_FLASHLIGHT_TPS61310)	+= tps61310_flashlight.o

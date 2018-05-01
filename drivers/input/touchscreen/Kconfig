@@ -340,19 +340,6 @@ config TOUCHSCREEN_MAX11801
 	  To compile this driver as a module, choose M here: the
 	  module will be called max11801_ts.
 
-config TOUCHSCREEN_MAX1187X
-	tristate "Maxim max1187X touchscreen"
-	depends on I2C
-	help
-	  Say Y here if you have a Maxim max11871 touchscreen connected
-	  to your system. max11871 conforms to the Maxim Touch Protocol
-	  (MTP) defined by Maxim.
-
-	  If unsure, say N.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called max1187x.
-
 config TOUCHSCREEN_MCS5000
 	tristate "MELFAS MCS-5000 touchscreen"
 	depends on I2C
@@ -490,10 +477,6 @@ config TOUCHSCREEN_SYNAPTICS_I2C_RMI
 	depends on I2C
 	help
 	  This enables support for Synaptics RMI over I2C based touchscreens.
-
-config TOUCHSCREEN_SYNAPTICS_SWEEP2WAKE
-        tristate "Sweep2Wake for SYNAPTICS_3k based touchscreens"
-        default n
 
 config TOUCHSCREEN_SYNAPTICS_RMI4_I2C
 	tristate "Synaptics i2c touchscreen(ClearPad 3000)"
@@ -1025,30 +1008,25 @@ config TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE
 	  To compile this driver as a module, choose M here: the
 	  module will be called synaptics_dsx_fw_update.
 
-config TOUCHSCREEN_ATMEL_224E
-	tristate "Atmel i2c touchscreen"
+config TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE_EXTRA_SYSFS
+	bool "Synaptics DSX firmware update extra sysfs attributes"
+	depends on TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE
+	help
+	  Say Y here to enable support for extra sysfs attributes
+	  supporting firmware update in a development environment.
+	  This does not affect the core or other subsystem attributes.
+
+	  If unsure, say N.
+
+config TOUCHSCREEN_CHARGER_NOTIFY
+	bool "Notify charger status to touch driver"
 	depends on I2C
+	depends on TOUCHSCREEN_LGE_SYNAPTICS
 	help
-	  This enables support for Atmel over I2C based touchscreens.
-
-config TOUCHSCREEN_CYPRESS_CS
-	tristate "Cypress CY8C20x34 based touchkey"
-	depends on I2C
-	help
-	  Enables support for Cypress CY8C_CS touchkeys.
-
-config TOUCHSCREEN_SYNAPTICS_3K
-	tristate "Synaptics 3K i2c touchscreen"
-	depends on I2C
-	help
-	  This enables support for Synaptics RMI4 over I2C based touchscreens.
-
-config TOUCHSCREEN_SYNAPTICS_REMOVE_FW_TIMEOUT
-	default n
-	depends on TOUCHSCREEN_SYNAPTICS_3K
-	bool "Disable Synaptics firmware condition read timeout"
-	help
-	  Say Y here if your Synaptics touchscreen is prone to
-	  failures when reading the firmware condition.
-
+	  Define a dummy power supply for touch and register it as
+	  supplicant of usb/dc/wireless power source so that the touch
+	  driver can get the charging start and stop events.
+	  The touch firmware will use this information to decide whether
+	  a new algorithm to reduce the noise impact needs to be applied
+	  or not.
 endif

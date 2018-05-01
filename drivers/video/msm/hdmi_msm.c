@@ -22,6 +22,7 @@
 #include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/mutex.h>
+#include <linux/slimport.h>
 #include <mach/msm_hdmi_audio.h>
 #include <mach/clk.h>
 #include <mach/msm_iomap.h>
@@ -75,27 +76,17 @@ static int msm_hdmi_sample_rate = MSM_HDMI_SAMPLE_RATE_48KHZ;
 
 struct workqueue_struct *hdmi_work_queue;
 struct hdmi_msm_state_type *hdmi_msm_state;
-static bool probe_completed = false;
-static bool first_online = true;
-static bool early_uevent = false;
 
+/* Enable HDCP by default */
 static bool hdcp_feature_on = true;
 
 DEFINE_MUTEX(hdmi_msm_state_mutex);
 EXPORT_SYMBOL(hdmi_msm_state_mutex);
 static DEFINE_MUTEX(hdcp_auth_state_mutex);
-extern void change_driving_strength(byte reg_a3, byte reg_a6);
-extern  uint8_t ReadHPD(void);
-extern void SetHDCPStatus(bool Status);
-#ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
-void check_mhl_5v_status(void);
-#endif
 
 static void hdmi_msm_dump_regs(const char *prefix);
 
 static void hdmi_msm_hdcp_enable(void);
-atomic_t read_an_complete;
-
 static void hdmi_msm_turn_on(void);
 static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
@@ -630,31 +621,6 @@ void hdmi_msm_cec_one_touch_play(void)
 }
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
 
-void hdmi_set_switch_state(bool enable)
-{
-	if(!enable)
-		switch_set_state(&external_common_state->sdev, 0);
-	DEV_INFO("%s, %s\n", __func__, (enable)? "on" : "off");
-
-}
-
-void adjust_driving_strength(void)
-{
-#ifdef CONFIG_FB_MSM_HDMI_MHL_SII9234
-	int i = 0;
-	if(hdmi_msm_state->pd->driving_params){
-		for (i = 0; i < hdmi_msm_state->pd->driving_params_count; i++) {
-			if(external_common_state->video_resolution == hdmi_msm_state->pd->driving_params[i].format)
-			{
-				change_driving_strength(hdmi_msm_state->pd->driving_params[i].reg_a3,
-					hdmi_msm_state->pd->driving_params[i].reg_a6);
-				break;
-			}
-		}
-	}
-#endif
-}
-
 uint32 hdmi_msm_get_io_base(void)
 {
 	return (uint32)MSM_HDMI_BASE;
@@ -665,31 +631,24 @@ EXPORT_SYMBOL(hdmi_msm_get_io_base);
 /* Valid Pixel-Clock rates: 25.2MHz, 27MHz, 27.03MHz, 74.25MHz, 148.5MHz */
 static void hdmi_msm_setup_video_mode_lut(void)
 {
-#ifdef CONFIG_MACH_HTC
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_640x480p60_4_3);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_720x480p60_4_3);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_720x480p60_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1280x720p60_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1440x480i60_4_3);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1440x480i60_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_720x576p50_4_3);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_720x576p50_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1280x720p50_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1440x576i50_4_3);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1440x576i50_16_9);
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut, HDMI_VFRMT_1920x1080p24_16_9);
-#else
-	/* Init video mode timings */
-	MSM_HDMI_MODES_INIT_TIMINGS(hdmi_common_supported_video_mode_lut);
-
-	/* Add all supported CEA modes to the lut */
-	MSM_HDMI_MODES_SET_SUPP_TIMINGS(
-		hdmi_common_supported_video_mode_lut, MSM_HDMI_MODES_CEA);
-
-	/* Add any other supported timings (DVI modes, etc.) */
-	MSM_HDMI_MODES_SET_TIMING(hdmi_common_supported_video_mode_lut,
-		HDMI_VFRMT_1280x1024p60_5_4);
-#endif
+	HDMI_SETUP_LUT(640x480p60_4_3);
+	HDMI_SETUP_LUT(720x480p60_4_3);
+	HDMI_SETUP_LUT(720x480p60_16_9);
+	HDMI_SETUP_LUT(1280x720p60_16_9);
+	HDMI_SETUP_LUT(1920x1080i60_16_9);
+	HDMI_SETUP_LUT(1440x480i60_4_3);
+	HDMI_SETUP_LUT(1440x480i60_16_9);
+	HDMI_SETUP_LUT(1920x1080p60_16_9);
+	HDMI_SETUP_LUT(720x576p50_4_3);
+	HDMI_SETUP_LUT(720x576p50_16_9);
+	HDMI_SETUP_LUT(1280x720p50_16_9);
+	HDMI_SETUP_LUT(1440x576i50_4_3);
+	HDMI_SETUP_LUT(1440x576i50_16_9);
+	HDMI_SETUP_LUT(1920x1080p50_16_9);
+	HDMI_SETUP_LUT(1920x1080p24_16_9);
+	HDMI_SETUP_LUT(1920x1080p25_16_9);
+	HDMI_SETUP_LUT(1920x1080p30_16_9);
+	HDMI_SETUP_LUT(1280x1024p60_5_4);
 }
 
 #ifdef PORT_DEBUG
@@ -813,12 +772,6 @@ static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
 static void hdmi_msm_hpd_off(void);
 
-#ifdef CONFIG_FB_MSM_HDMI_MHL_SII9234
-static void mhl_status_notifier_func(bool isMHL, int charging_type)
-{
-}
-#endif
-
 static bool hdmi_ready(void)
 {
 	return MSM_HDMI_BASE &&
@@ -844,10 +797,7 @@ static void hdmi_msm_send_event(boolean on)
 		switch_set_state(&external_common_state->sdev, 1);
 		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
 				external_common_state->sdev.state);
-		if (first_online) {
-			first_online = false;
-			early_uevent = true;
-		}
+
 		DEV_INFO("HDMI HPD: CONNECTED: send ONLINE\n");
 		kobject_uevent(external_common_state->uevent_kobj, KOBJ_ONLINE);
 		if (!hdmi_msm_state->hdcp_enable) {
@@ -876,18 +826,7 @@ static void hdmi_msm_hpd_state_work(struct work_struct *work)
 	}
 
 	hdmi_msm_send_event(external_common_state->hpd_state);
-
 }
-
-void send_hdmi_uevent(void)
-{
-	if (early_uevent) {
-		early_uevent = false;
-		kobject_uevent(external_common_state->uevent_kobj,
-				KOBJ_ONLINE);
-	}
-}
-EXPORT_SYMBOL(send_hdmi_uevent);
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
 static void hdmi_msm_cec_latch_work(struct work_struct *work)
@@ -899,7 +838,6 @@ static void hdmi_msm_cec_latch_work(struct work_struct *work)
 static void hdcp_deauthenticate(void);
 static void hdmi_msm_hdcp_reauth_work(struct work_struct *work)
 {
-
 	if (!hdmi_msm_state->hdcp_enable) {
 		DEV_DBG("%s: HDCP not enabled\n", __func__);
 		return;
@@ -1083,11 +1021,15 @@ static irqreturn_t hdmi_msm_isr(int irq, void *dev_id)
 	/* HDMI_HPD_INT_CTRL[0x0254] */
 	hpd_int_ctrl = HDMI_INP_ND(0x0254);
 	if ((hpd_int_ctrl & (1 << 2)) && (hpd_int_status & (1 << 0))) {
+		/*
+		 * Got HPD interrupt. Ack the interrupt and disable any
+		 * further HPD interrupts until we process this interrupt.
+		 */
 		HDMI_OUTP(0x0254, ((hpd_int_ctrl | (BIT(0))) & ~BIT(2)));
 
 		external_common_state->hpd_state =
 			(HDMI_INP(0x0250) & BIT(1)) >> 1;
-		DEV_INFO("%s: Queuing work to handle HPD %s event\n", __func__,
+		DEV_DBG("%s: Queuing work to handle HPD %s event\n", __func__,
 				external_common_state->hpd_state ? "connect" :
 				"disconnect");
 		queue_work(hdmi_work_queue, &hdmi_msm_state->hpd_state_work);
@@ -1303,12 +1245,20 @@ void hdmi_msm_set_mode(boolean power_on)
 		if (external_common_state->hdmi_sink == 0) {
 			/* HDMI_DVI_SEL */
 			reg_val |= 0x00000002;
+			if (hdmi_msm_state->hdcp_enable)
+				/* HDMI Encryption */
+				reg_val |= 0x00000004;
 			/* HDMI_CTRL */
 			HDMI_OUTP(0x0000, reg_val);
 			/* HDMI_DVI_SEL */
 			reg_val &= ~0x00000002;
-		} else
-			reg_val |= 0x00000002;
+		} else {
+			if (hdmi_msm_state->hdcp_enable)
+				/* HDMI_Encryption_ON */
+				reg_val |= 0x00000006;
+			else
+				reg_val |= 0x00000002;
+		}
 	} else
 		reg_val = 0x00000002;
 
@@ -2130,6 +2080,10 @@ static int hdmi_msm_read_edid(void)
 	}
 
 	external_common_state->read_edid_block = hdmi_msm_read_edid_block;
+#ifdef CONFIG_SLIMPORT_ANX7808
+	external_common_state->read_edid_block = slimport_read_edid_block;
+#endif
+
 	status = hdmi_common_read_edid();
 	if (!status)
 		DEV_DBG("EDID: successfully read\n");
@@ -2223,7 +2177,7 @@ static int hdmi_msm_count_one(uint8 *array, uint8 len)
 	return count;
 }
 
-void hdcp_deauthenticate(void)
+static void hdcp_deauthenticate(void)
 {
 	int hdcp_link_status = HDMI_INP(0x011C);
 
@@ -2359,9 +2313,7 @@ static int hdcp_authentication_part1(void)
 {
 	int ret = 0;
 	boolean is_match;
-	bool stale_an = false;
 	boolean is_part1_done = FALSE;
-	boolean clock_not_set = FALSE;
 	uint32 timeout_count;
 	uint8 bcaps;
 	uint8 aksv[5];
@@ -2383,8 +2335,6 @@ static int hdcp_authentication_part1(void)
 
 	if (!is_part1_done) {
 		is_part1_done = TRUE;
-
-		atomic_set(&read_an_complete,1);
 
 		/* Fetch aksv from QFprom, this info should be public. */
 		qfprom_aksv_0 = inpdw(QFPROM_BASE + 0x000060D8);
@@ -2418,13 +2368,6 @@ static int hdcp_authentication_part1(void)
 		 * before enabling HDCP. */
 		HDMI_OUTP(0x0288, qfprom_aksv_0);
 		HDMI_OUTP(0x0284, qfprom_aksv_1);
-
-		/* Check for link0_Status stale values for An ready bit */
-		if (HDMI_INP_ND(0x011C) & (BIT(8) | BIT(9))) {
-			DEV_WARN("%s: An ready even before enabling HDCP\n",
-				__func__);
-			stale_an = true;
-		}
 
 		msm_hdmi_init_ddc();
 
@@ -2493,81 +2436,30 @@ static int hdcp_authentication_part1(void)
 		/* enable all HDCP ints */
 		HDMI_OUTP(0x0118, (1 << 2) | (1 << 6) | (1 << 7));
 
-		/* Wait for HDCP keys to be checked and validated */
-		timeout_count = 100;
-		while ((((HDMI_INP(0x011C) >> 28) & 0x7) != 0x3) &&
-			timeout_count) {
-			DEV_DBG("%s: Keys not ready(%d)\n", __func__,
-				timeout_count);
-			timeout_count--;
-			msleep(20);
-		}
-
-		if (!timeout_count) {
-			DEV_ERR("%s: KEYS NOT READY\n", __func__);
-			/* three bits 28..30 */
-			hdcp_key_state((HDMI_INP(0x011C) >> 28) & 0x7);
-			goto error;
-		}
-
-		mutex_lock(&hdcp_auth_state_mutex);
-
-		/* 0x0168 HDCP_RCVPORT_DATA12
-		   [23:8] BSTATUS
-		   [7:0] BCAPS */
-		HDMI_OUTP(0x0168, bcaps);
-
-		/* Check for link0_Status stale values for An ready bit */
-		if (!(HDMI_INP_ND(0x011C) & (BIT(8) | BIT(9)))) {
-			DEV_DBG("%s: An not ready after enabling HDCP\n",
-				__func__);
-			stale_an = false;
-		}
-
 		/* 0x011C HDCP_LINK0_STATUS
 		[8] AN_0_READY
 		[9] AN_1_READY */
 		/* wait for an0 and an1 ready bits to be set in LINK0_STATUS */
 
-		mutex_lock(&hdmi_msm_state_mutex);
-		if(!hdmi_msm_state->panel_power_on) {
-			mutex_unlock(&hdmi_msm_state_mutex);
-			clock_not_set = TRUE;
-		} else {
-			mutex_unlock(&hdmi_msm_state_mutex);
-			timeout_count = 100;
-			while (((HDMI_INP_ND(0x011C) & (0x3 << 8)) != (0x3 << 8))
-				&& timeout_count) {
-				DEV_DBG("wait for 20ms.... %d\n", timeout_count);
-				msleep(20);
-				timeout_count--;
-			}
-			if (!timeout_count) {
-				ret = -ETIMEDOUT;
-				DEV_ERR("%s(%d): timedout, An0=%d, An1=%d\n",
-					__func__, __LINE__,
-				(HDMI_INP_ND(0x011C) & BIT(8)) >> 8,
-				(HDMI_INP_ND(0x011C) & BIT(9)) >> 9);
-				mutex_unlock(&hdcp_auth_state_mutex);
-				goto error;
-			}
+		mutex_lock(&hdcp_auth_state_mutex);
+		timeout_count = 100;
+		while (((HDMI_INP_ND(0x011C) & (0x3 << 8)) != (0x3 << 8))
+			&& timeout_count--)
+			msleep(20);
+		if (!timeout_count) {
+			ret = -ETIMEDOUT;
+			DEV_ERR("%s(%d): timedout, An0=%d, An1=%d\n",
+				__func__, __LINE__,
+			(HDMI_INP_ND(0x011C) & BIT(8)) >> 8,
+			(HDMI_INP_ND(0x011C) & BIT(9)) >> 9);
+			mutex_unlock(&hdcp_auth_state_mutex);
+			goto error;
 		}
 
-		/*
-		 * In cases where An_ready bits had stale values, it would be
-		 * better to delay reading of An to avoid any potential of this
-		 * read being blocked
-		 */
-		if (stale_an) {
-			msleep(200);
-			stale_an = false;
-		}
-
-		if (clock_not_set) {
-			link0_an_0 = 0;
-			link0_an_1 = 0;
-			goto skip_an;
-		}
+		/* 0x0168 HDCP_RCVPORT_DATA12
+		   [23:8] BSTATUS
+		   [7:0] BCAPS */
+		HDMI_OUTP(0x0168, bcaps);
 
 		/* 0x014C HDCP_RCVPORT_DATA5
 		   [31:0] LINK0_AN_0 */
@@ -2578,10 +2470,10 @@ static int hdcp_authentication_part1(void)
 		   [31:0] LINK0_AN_1 */
 		/* read an1 calculation */
 		link0_an_1 = HDMI_INP(0x0150);
-
-skip_an:
-		atomic_set(&read_an_complete,0);
 		mutex_unlock(&hdcp_auth_state_mutex);
+
+		/* three bits 28..30 */
+		hdcp_key_state((HDMI_INP(0x011C) >> 28) & 0x7);
 
 		/* 0x0144 HDCP_RCVPORT_DATA3
 		[31:0] LINK0_AKSV_0 public key
@@ -2716,7 +2608,6 @@ skip_an:
 		is_part1_done = FALSE;
 		return 0;
 error:
-		atomic_set(&read_an_complete,0);
 		DEV_ERR("[%s]: HDCP Reauthentication\n", __func__);
 		is_part1_done = FALSE;
 		return ret;
@@ -3162,7 +3053,7 @@ static void hdmi_msm_video_setup(int video_format)
 	uint32 end_h     = 0;
 	uint32 start_v   = 0;
 	uint32 end_v     = 0;
-	const struct msm_hdmi_mode_timing_info *timing =
+	const struct hdmi_disp_mode_timing_type *timing =
 		hdmi_common_get_supported_mode(video_format);
 
 	/* timing register setup */
@@ -3264,8 +3155,11 @@ static void hdmi_msm_audio_acr_setup(boolean enabled, int video_format,
 	/* HDMI_ACR_PKT_CTRL[0x0024] */
 	uint32 acr_pck_ctrl_reg = HDMI_INP(0x0024);
 
+	/* Clear N/CTS selection bits */
+	acr_pck_ctrl_reg &= ~(3 << 4);
+
 	if (enabled) {
-		const struct msm_hdmi_mode_timing_info *timing =
+		const struct hdmi_disp_mode_timing_type *timing =
 			hdmi_common_get_supported_mode(video_format);
 		const struct hdmi_msm_audio_arcs *audio_arc =
 			&hdmi_msm_audio_acr_lut[0];
@@ -3668,6 +3562,9 @@ EXPORT_SYMBOL(hdmi_msm_audio_get_sample_rate);
 
 void hdmi_msm_audio_sample_rate_reset(int rate)
 {
+	if (msm_hdmi_sample_rate == rate)
+		return;
+
 	msm_hdmi_sample_rate = rate;
 
 	if (hdmi_msm_state->hdcp_enable)
@@ -3724,49 +3621,35 @@ static int hdmi_msm_audio_off(void)
 	return 0;
 }
 
-static uint8 hdmi_msm_avi_iframe_lut[][16] = {
+static uint8 hdmi_msm_avi_iframe_lut[][17] = {
 /*	480p60	480i60	576p50	576i50	720p60	 720p50	1080p60	1080i60	1080p50
-	1080i50	1080p24	1080p30	1080p25	640x480p 480p60_16_9 576p50_4_3 1024p*/
-
-	/* Data Byte 01: 0 Y1 Y0 A0 B1 B0 S1 S0 */
+	1080i50	1080p24	1080p30	1080p25	640x480p 480p60_16_9 576p50_4_3 */
 	{0x10,	0x10,	0x10,	0x10,	0x10,	 0x10,	0x10,	0x10,	0x10,
-	 0x10,	0x10,	0x10,	0x10,	0x10, 0x10, 0x10}, /*00*/
-	/* Data Byte 02: C1 C0 M1 M0 R3 R2 R1 R0 */
+	 0x10,	0x10,	0x10,	0x10,	0x10, 0x10, 0x10, 0x10}, /*00*/
 	{0x18,	0x18,	0x28,	0x28,	0x28,	 0x28,	0x28,	0x28,	0x28,
-	 0x28,	0x28,	0x28,	0x28,	0x18, 0x28, 0x18}, /*01*/
-	/* Data Byte 03: ITC EC2 EC1 EC0 Q1 Q0 SC1 SC0 */
-	{0x04,	0x00,	0x04,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x04, 0x04, 0x04}, /*02*/
-	/* Data Byte 04: 0 VIC6 VIC5 VIC4 VIC3 VIC2 VIC1 VIC0 */
-	{0x02,	0x06,	0x12,	0x15,	0x04,	 0x13,	0x10,	0x05,	0x1F,
-	 0x14,	0x20,	0x22,	0x21,	0x01, 0x03, 0x11}, /*03*/
-	/* Data Byte 05: 0 0 0 0 PR3 PR2 PR1 PR0 */
+	 0x28,	0x28,	0x28,	0x28,	0x18, 0x28, 0x18, 0x08}, /*01*/
+	{0x00,	0x04,	0x04,	0x04,	0x04,	 0x04,	0x04,	0x04,	0x04,
+	 0x04,	0x04,	0x04,	0x04,	0x88, 0x00, 0x04, 0x04}, /*02*/
+	{0x02,	0x06,	0x11,	0x15,	0x04,	 0x13,	0x10,	0x05,	0x1F,
+	 0x14,	0x20,	0x22,	0x21,	0x01, 0x03, 0x11, 0x00}, /*03*/
 	{0x00,	0x01,	0x00,	0x01,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*04*/
-	/* Data Byte 06: LSB Line No of End of Top Bar */
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00, 0x00}, /*04*/
 	{0x00,	0x00,	0x00,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*05*/
-	/* Data Byte 07: MSB Line No of End of Top Bar */
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00, 0x00}, /*05*/
 	{0x00,	0x00,	0x00,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*06*/
-	/* Data Byte 08: LSB Line No of Start of Bottom Bar */
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00, 0x00}, /*06*/
 	{0xE1,	0xE1,	0x41,	0x41,	0xD1,	 0xd1,	0x39,	0x39,	0x39,
-	 0x39,	0x39,	0x39,	0x39,	0xe1, 0xE1, 0x41}, /*07*/
-	/* Data Byte 09: MSB Line No of Start of Bottom Bar */
+	 0x39,	0x39,	0x39,	0x39,	0xe1, 0xE1, 0x41, 0x01}, /*07*/
 	{0x01,	0x01,	0x02,	0x02,	0x02,	 0x02,	0x04,	0x04,	0x04,
-	 0x04,	0x04,	0x04,	0x04,	0x01, 0x01, 0x02}, /*08*/
-	/* Data Byte 10: LSB Pixel Number of End of Left Bar */
+	 0x04,	0x04,	0x04,	0x04,	0x01, 0x01, 0x02, 0x04}, /*08*/
 	{0x00,	0x00,	0x00,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*09*/
-	/* Data Byte 11: MSB Pixel Number of End of Left Bar */
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00, 0x00}, /*09*/
 	{0x00,	0x00,	0x00,	0x00,	0x00,	 0x00,	0x00,	0x00,	0x00,
-	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00}, /*10*/
-	/* Data Byte 12: LSB Pixel Number of Start of Right Bar */
+	 0x00,	0x00,	0x00,	0x00,	0x00, 0x00, 0x00, 0x00}, /*10*/
 	{0xD1,	0xD1,	0xD1,	0xD1,	0x01,	 0x01,	0x81,	0x81,	0x81,
-	 0x81,	0x81,	0x81,	0x81,	0x81, 0xD1, 0xD1}, /*11*/
-	/* Data Byte 13: MSB Pixel Number of Start of Right Bar */
+	 0x81,	0x81,	0x81,	0x81,	0x81, 0xD1, 0xD1, 0x01}, /*11*/
 	{0x02,	0x02,	0x02,	0x02,	0x05,	 0x05,	0x07,	0x07,	0x07,
-	 0x07,	0x07,	0x07,	0x07,	0x02, 0x02, 0x02}  /*12*/
+	 0x07,	0x07,	0x07,	0x07,	0x02, 0x02, 0x02, 0x05}  /*12*/
 };
 
 static void hdmi_msm_avi_info_frame(void)
@@ -3829,6 +3712,9 @@ static void hdmi_msm_avi_info_frame(void)
 	case HDMI_VFRMT_720x576p50_4_3:
 		mode = 15;
 		break;
+	case HDMI_VFRMT_1280x1024p60_5_4:
+		mode = 16;
+		break;
 	default:
 		DEV_INFO("%s: mode %d not supported\n", __func__,
 			external_common_state->video_resolution);
@@ -3889,10 +3775,7 @@ static void hdmi_msm_avi_info_frame(void)
 	/* Data Byte 02: C1 C0 M1 M0 R3 R2 R1 R0 */
 	aviInfoFrame[4]  = hdmi_msm_avi_iframe_lut[1][mode];
 	/* Data Byte 03: ITC EC2 EC1 EC0 Q1 Q0 SC1 SC0 */
-	if(external_common_state->vcdb_support)
-		aviInfoFrame[5]  = hdmi_msm_avi_iframe_lut[2][mode];
-	else
-		aviInfoFrame[5] = 0x00;
+	aviInfoFrame[5]  = hdmi_msm_avi_iframe_lut[2][mode];
 	/* Data Byte 04: 0 VIC6 VIC5 VIC4 VIC3 VIC2 VIC1 VIC0 */
 	aviInfoFrame[6]  = hdmi_msm_avi_iframe_lut[3][mode];
 	/* Data Byte 05: 0 0 0 0 PR3 PR2 PR1 PR0 */
@@ -4314,7 +4197,7 @@ static void hdmi_msm_hpd_polarity_setup(void)
 	if (cable_sense == polarity)
 		trigger = true;
 
-	DEV_INFO("%s: listen=%s, sense=%s, trigger=%s\n", __func__,
+	DEV_DBG("%s: listen=%s, sense=%s, trigger=%s\n", __func__,
 		polarity ? "connect" : "disconnect",
 		cable_sense ? "connect" : "disconnect",
 		trigger ? "Yes" : "No");
@@ -4330,6 +4213,8 @@ static void hdmi_msm_hpd_polarity_setup(void)
 
 static void hdmi_msm_hpd_off(void)
 {
+	int rc = 0;
+
 	if (!hdmi_msm_state->hpd_initialized) {
 		DEV_DBG("%s: HPD is already OFF, returning\n", __func__);
 		return;
@@ -4340,17 +4225,15 @@ static void hdmi_msm_hpd_off(void)
 
 	/* Disable HPD interrupt */
 	HDMI_OUTP(0x0254, 0);
-	DEV_INFO("%s: Disabling HPD_CTRLd\n", __func__);
+	DEV_DBG("%s: Disabling HPD_CTRLd\n", __func__);
 
 	hdmi_msm_set_mode(FALSE);
-	hdmi_msm_state->hpd_initialized = FALSE;
-	hdmi_msm_powerdown_phy();
-#ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
-	if(probe_completed)
-		hdmi_msm_state->pd->enable_5v(0);
-#endif
-	hdmi_msm_state->pd->core_power(0, 1);
+	hdmi_msm_state->pd->enable_5v(0);
 	hdmi_msm_clk(0);
+	rc = hdmi_msm_state->pd->gpio_config(0);
+	if (rc != 0)
+		DEV_INFO("%s: Failed to disable GPIOs. Error=%d\n",
+				__func__, rc);
 	hdmi_msm_state->hpd_initialized = FALSE;
 }
 
@@ -4366,20 +4249,33 @@ static int hdmi_msm_hpd_on(void)
 {
 	static int phy_reset_done;
 	uint32 hpd_ctrl;
+	int rc = 0;
 
 	if (hdmi_msm_state->hpd_initialized) {
-		DEV_DBG("%s: HPD is already ON, returning\n", __func__);
-		return 0;
+		DEV_DBG("%s: HPD is already ON\n", __func__);
 	} else {
-		hdmi_msm_clk(1);
-		hdmi_msm_state->pd->core_power(1, 1);
-#ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
-		if(probe_completed)
-			hdmi_msm_state->pd->enable_5v(1);
-		check_mhl_5v_status();
-#endif
+		rc = hdmi_msm_state->pd->gpio_config(1);
+		if (rc) {
+			DEV_ERR("%s: Failed to enable GPIOs. Error=%d\n",
+					__func__, rc);
+			goto error1;
+		}
 
+		rc = hdmi_msm_clk(1);
+		if (rc) {
+			DEV_ERR("%s: Failed to enable clocks. Error=%d\n",
+					__func__, rc);
+			goto error2;
+		}
+
+		rc = hdmi_msm_state->pd->enable_5v(1);
+		if (rc) {
+			DEV_ERR("%s: Failed to enable 5V regulator. Error=%d\n",
+					__func__, rc);
+			goto error3;
+		}
 		hdmi_msm_dump_regs("HDMI-INIT: ");
+
 		hdmi_msm_set_mode(FALSE);
 		if (!phy_reset_done) {
 			hdmi_phy_reset();
@@ -4413,6 +4309,13 @@ static int hdmi_msm_hpd_on(void)
 
 	DEV_DBG("%s: (IRQ, 5V on)\n", __func__);
 	return 0;
+
+error3:
+	hdmi_msm_clk(0);
+error2:
+	hdmi_msm_state->pd->gpio_config(0);
+error1:
+	return rc;
 }
 
 static int hdmi_msm_power_ctrl(boolean enable)
@@ -4457,7 +4360,7 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
 	int ret = 0;
-	bool changed = FALSE;
+	bool changed;
 
 	if (!hdmi_ready()) {
 		DEV_ERR("%s: HDMI/HPD not initialized\n", __func__);
@@ -4469,6 +4372,7 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 		goto error;
 	}
 
+	/* Only start transmission with supported resolution */
 	changed = hdmi_common_get_video_format_from_drv_data(mfd);
 	if (changed || external_common_state->default_res_supported) {
 		mutex_lock(&external_common_state_hpd_mutex);
@@ -4481,7 +4385,6 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 				mfd->var_pixclock);
 
 			hdmi_msm_turn_on();
-			hdmi_msm_state->is_hpd_feature_off = FALSE;
 			hdmi_msm_state->panel_power_on = TRUE;
 
 			if (hdmi_msm_state->hdcp_enable) {
@@ -4497,10 +4400,6 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 			mutex_unlock(&external_common_state_hpd_mutex);
 		}
 
-		if (hdmi_msm_state->pd->driving_params) {
-			adjust_driving_strength();
-		}
-
 		hdmi_msm_dump_regs("HDMI-ON: ");
 		DEV_INFO("power=%s DVI= %s\n",
 			hdmi_msm_is_power_on() ? "ON" : "OFF" ,
@@ -4514,13 +4413,6 @@ static int hdmi_msm_power_on(struct platform_device *pdev)
 error:
 	/* Set HPD cable sense polarity */
 	hdmi_msm_hpd_polarity_setup();
-	if ((changed || external_common_state->default_res_supported)
-			&& hdmi_msm_state->is_hpd_feature_off) {
-		DEV_INFO("HDMI HPD: sense DISCONNECTED: send OFFLINE\n");
-		switch_set_state(&external_common_state->sdev, 0);
-		kobject_uevent(external_common_state->uevent_kobj,
-				KOBJ_OFFLINE);
-	}
 
 	return ret;
 }
@@ -4532,7 +4424,7 @@ void mhl_connect_api(boolean on)
 	/* Simulating a HPD event based on MHL event */
 	if (on) {
 		hdmi_msm_read_edid();
-		hdmi_msm_state->reauth = FALSE;
+		hdmi_msm_state->reauth = FALSE ;
 		/* Build EDID table */
 		hdmi_msm_turn_on();
 		DEV_INFO("HDMI HPD: CONNECTED: send ONLINE\n");
@@ -4572,16 +4464,9 @@ EXPORT_SYMBOL(mhl_connect_api);
 static int hdmi_msm_power_off(struct platform_device *pdev)
 {
 	int ret = 0;
-	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
 
-	/*
-	don't check for hpd_initialized here since user space may
-	turn off HPD via hdmi_msm_hpd_feature() before power off is
-	called which leads to HDCP HW lockup on the next power on.
-	*/
-	if (!(MSM_HDMI_BASE && hdmi_msm_state &&
-			hdmi_msm_state->hdmi_app_clk)) {
-		DEV_ERR("%s: HDMI not initialized\n", __func__);
+	if (!hdmi_ready()) {
+		DEV_ERR("%s: HDMI/HPD not initialized\n", __func__);
 		return ret;
 	}
 
@@ -4618,15 +4503,8 @@ static int hdmi_msm_power_off(struct platform_device *pdev)
 
 	if (!hdmi_msm_is_dvi_mode())
 		hdmi_msm_audio_off();
-	hdmi_msm_hpd_off();
-	hdmi_msm_powerdown_phy();
-	hdmi_msm_dump_regs("HDMI-OFF: ");
-	hdmi_msm_hpd_on();
 
-	mutex_lock(&external_common_state_hpd_mutex);
-	if (!external_common_state->hpd_feature_on || mfd->ref_cnt)
-		hdmi_msm_hpd_off();
-	mutex_unlock(&external_common_state_hpd_mutex);
+	hdmi_msm_powerdown_phy();
 
 	hdmi_msm_state->panel_power_on = FALSE;
 	DEV_INFO("power: OFF (audio off)\n");
@@ -4662,34 +4540,26 @@ void hdmi_msm_config_hdcp_feature(void)
 			hdmi_msm_state->hdcp_enable ? "Enabled" : "Disabled");
 }
 
-void hdmi_hpd_feature(int enable)
+static void hdmi_msm_update_panel_info(struct msm_fb_data_type *mfd)
 {
-	if (external_common_state && external_common_state->hpd_feature) {
-		if (enable) {
-			external_common_state->hpd_feature(1);
-			mutex_lock(&external_common_state_hpd_mutex);
-			external_common_state->hpd_feature_on = 1;
-			mutex_unlock(&external_common_state_hpd_mutex);
-		} else {
-			hdmi_msm_state->is_hpd_feature_off = TRUE;
-			if (hdmi_msm_state->panel_power_on == FALSE) {
-				external_common_state->hpd_feature(0);
-				DEV_INFO("HDMI HPD: sense DISCONNECTED: send OFFLINE\n");
-				switch_set_state(&external_common_state->sdev, 0);
-				kobject_uevent(external_common_state->uevent_kobj,
-					KOBJ_OFFLINE);
-			}
-			mutex_lock(&external_common_state_hpd_mutex);
-			external_common_state->hpd_feature_on = 0;
-			mutex_unlock(&external_common_state_hpd_mutex);
-		}
-	}
+	if (!mfd)
+		return;
+
+	if (hdmi_common_get_video_format_from_drv_data(mfd))
+		hdmi_common_init_panel_info(&mfd->panel_info);
+}
+
+static bool hdmi_msm_cable_connected(void)
+{
+	return hdmi_msm_state->hpd_initialized &&
+			external_common_state->hpd_state;
 }
 
 static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 {
 	int rc;
 	struct platform_device *fb_dev;
+	struct msm_fb_data_type *mfd = NULL;
 
 	if (!hdmi_msm_state) {
 		pr_err("%s: hdmi_msm_state is NULL\n", __func__);
@@ -4740,26 +4610,25 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 	hdmi_msm_state->hdmi_app_clk = clk_get(&pdev->dev, "core_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_app_clk)) {
 		DEV_ERR("'core_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_app_clk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_app_clk);
 		goto error;
 	}
 
 	hdmi_msm_state->hdmi_m_pclk = clk_get(&pdev->dev, "master_iface_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_m_pclk)) {
 		DEV_ERR("'master_iface_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_m_pclk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_m_pclk);
 		goto error;
 	}
 
 	hdmi_msm_state->hdmi_s_pclk = clk_get(&pdev->dev, "slave_iface_clk");
 	if (IS_ERR(hdmi_msm_state->hdmi_s_pclk)) {
 		DEV_ERR("'slave_iface_clk' clk not found\n");
-		rc = PTR_ERR(hdmi_msm_state->hdmi_s_pclk);
+		rc = IS_ERR(hdmi_msm_state->hdmi_s_pclk);
 		goto error;
 	}
 
 	hdmi_msm_state->is_mhl_enabled = hdmi_msm_state->pd->is_mhl_enabled;
-	hdmi_msm_state->is_hpd_feature_off = FALSE;
 
 	rc = check_hdmi_features();
 	if (rc) {
@@ -4777,13 +4646,12 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 		rc = -ENODEV;
 		goto error;
 	}
-#if 0
+
 	if (!hdmi_msm_state->pd->cec_power) {
 		DEV_ERR("Init FAILED: cec_power function missing\n");
 		rc = -ENODEV;
 		goto error;
 	}
-#endif
 
 	rc = request_threaded_irq(hdmi_msm_state->irq, NULL, &hdmi_msm_isr,
 		IRQF_TRIGGER_HIGH | IRQF_ONESHOT, "hdmi_msm_isr", NULL);
@@ -4813,6 +4681,10 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 	} else
 		DEV_ERR("Init FAILED: failed to add fb device\n");
 
+	mfd = platform_get_drvdata(fb_dev);
+	mfd->update_panel_info = hdmi_msm_update_panel_info;
+	mfd->is_panel_ready = hdmi_msm_cable_connected;
+
 	if (hdmi_prim_display) {
 		rc = hdmi_msm_hpd_on();
 		if (rc)
@@ -4821,11 +4693,7 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 
 	hdmi_msm_config_hdcp_feature();
 
-	hdmi_msm_state->pd->core_power(0, 1);
-
-	probe_completed = true;
-	DEV_INFO("probe done\n");
-
+	/* Initialize hdmi node and register with switch driver */
 	if (hdmi_prim_display)
 		external_common_state->sdev.name = "hdmi_as_primary";
 	else
@@ -4920,6 +4788,8 @@ static int hdmi_msm_hpd_feature(int on)
 		rc = hdmi_msm_hpd_on();
 	} else {
 		if (external_common_state->hpd_state) {
+			external_common_state->hpd_state = 0;
+
 			/* Send offline event to switch OFF HDMI and HAL FD */
 			hdmi_msm_send_event(HPD_EVENT_OFFLINE);
 
@@ -4927,11 +4797,14 @@ static int hdmi_msm_hpd_feature(int on)
 			INIT_COMPLETION(hdmi_msm_state->hpd_event_processed);
 			wait_for_completion_interruptible_timeout(
 				&hdmi_msm_state->hpd_event_processed, HZ);
-
-			external_common_state->hpd_state = 0;
 		}
 
 		hdmi_msm_hpd_off();
+
+		/* Set HDMI switch node to 0 on HPD feature disable */
+		switch_set_state(&external_common_state->sdev, 0);
+		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
+				external_common_state->sdev.state);
 	}
 
 	return rc;
@@ -4954,12 +4827,7 @@ static struct platform_device this_device = {
 	.id = 1,
 	.dev.platform_data = &hdmi_msm_panel_data,
 };
-#ifdef CONFIG_FB_MSM_HDMI_MHL_SII9234
-static struct t_mhl_status_notifier mhl_status_notifier = {
-	.name = "mhl_detect",
-	.func = mhl_status_notifier_func,
-};
-#endif
+
 static int __init hdmi_msm_init(void)
 {
 	int rc;
@@ -4980,12 +4848,13 @@ static int __init hdmi_msm_init(void)
 	}
 
 	external_common_state = &hdmi_msm_state->common;
+
 	if (hdmi_prim_display && hdmi_prim_resolution)
 		external_common_state->video_resolution =
 			hdmi_prim_resolution - 1;
 	else
 		external_common_state->video_resolution =
-			HDMI_VFRMT_1920x1080p24_16_9;
+			HDMI_VFRMT_1920x1080p60_16_9;
 
 #ifdef CONFIG_FB_MSM_HDMI_3D
 	external_common_state->switch_3d = hdmi_msm_switch_3d;
@@ -5028,17 +4897,12 @@ static int __init hdmi_msm_init(void)
 	init_completion(&hdmi_msm_state->ddc_sw_done);
 	init_completion(&hdmi_msm_state->hpd_event_processed);
 	INIT_WORK(&hdmi_msm_state->hpd_state_work, hdmi_msm_hpd_state_work);
-	atomic_set(&read_an_complete,0);
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
 	INIT_WORK(&hdmi_msm_state->cec_latch_detect_work,
 		  hdmi_msm_cec_latch_work);
 	init_completion(&hdmi_msm_state->cec_frame_wr_done);
 	init_completion(&hdmi_msm_state->cec_line_latch_wait);
-#endif
-
-#if (defined(CONFIG_CABLE_DETECT_ACCESSORY) && defined(CONFIG_FB_MSM_HDMI_MHL_SII9234))
-	mhl_detect_register_notifier(&mhl_status_notifier);
 #endif
 
 	rc = platform_device_register(&this_device);
@@ -5107,7 +4971,7 @@ module_param_cb(hdcp, &hdcp_feature_on_param_ops, &hdcp_feature_on,
 			S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(hdcp, "Enable or Disable HDCP");
 
-late_initcall(hdmi_msm_init);
+module_init(hdmi_msm_init);
 module_exit(hdmi_msm_exit);
 
 MODULE_LICENSE("GPL v2");

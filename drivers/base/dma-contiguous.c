@@ -31,7 +31,6 @@
 #include <linux/swap.h>
 #include <linux/mm_types.h>
 #include <linux/dma-contiguous.h>
-#include <trace/events/kmem.h>
 
 #ifndef SZ_1M
 #define SZ_1M (1 << 20)
@@ -311,13 +310,12 @@ err:
  * global one. Requires architecture specific get_dev_cma_area() helper
  * function.
  */
-struct page *dma_alloc_from_contiguous(struct device *dev, int count,
+struct page *dma_alloc_from_contiguous(struct device *dev, size_t count,
 				       unsigned int align)
 {
 	unsigned long mask, pfn, pageno, start = 0;
 	struct cma *cma = dev_get_cma_area(dev);
 	int ret;
-	int tries = 0;
 
 	if (!cma || !cma->count)
 		return NULL;
@@ -325,7 +323,7 @@ struct page *dma_alloc_from_contiguous(struct device *dev, int count,
 	if (align > CONFIG_CMA_ALIGNMENT)
 		align = CONFIG_CMA_ALIGNMENT;
 
-	pr_debug("%s(cma %p, count %d, align %d)\n", __func__, (void *)cma,
+	pr_debug("%s(cma %p, count %zu, align %d)\n", __func__, (void *)cma,
 		 count, align);
 
 	if (!count)
@@ -351,9 +349,6 @@ struct page *dma_alloc_from_contiguous(struct device *dev, int count,
 		} else if (ret != -EBUSY) {
 			goto error;
 		}
-		tries++;
-		trace_dma_alloc_contiguous_retry(tries);
-
 		pr_debug("%s(): memory range at %p is busy, retrying\n",
 			 __func__, pfn_to_page(pfn));
 		/* try again with a bit different memory target */

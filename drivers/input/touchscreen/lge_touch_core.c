@@ -23,14 +23,16 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#endif
 #include <linux/jiffies.h>
 #include <linux/sysdev.h>
 #include <linux/types.h>
 #include <linux/time.h>
 #include <linux/version.h>
-
-#include <asm/atomic.h>
+#include <linux/atomic.h>
 #include <linux/gpio.h>
 
 #include <linux/input/lge_touch_core.h>
@@ -84,11 +86,6 @@ static struct pointer_trace tr_data[MAX_TRACE];
 static int tr_last_index;
 #endif
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-static void touch_early_suspend(struct early_suspend *h);
-static void touch_late_resume(struct early_suspend *h);
-#endif
-
 /* set_touch_handle / get_touch_handle
  *
  * Developer can save their object using 'set_touch_handle'.
@@ -105,6 +102,13 @@ void* get_touch_handle(struct i2c_client *client)
 	struct lge_touch_data *ts = i2c_get_clientdata(client);
 	return ts->h_touch;
 }
+
+#ifdef CONFIG_FB
+static void touch_fb_suspend(struct lge_touch_data *ts);
+static void touch_fb_resume(struct lge_touch_data *ts);
+static int fb_notifier_callback(struct notifier_block *self,
+                                unsigned long event, void *data);
+#endif
 
 /* touch_i2c_read / touch_i2c_write
  *
@@ -376,13 +380,19 @@ static int touch_ic_init(struct lge_touch_data *ts)
 		goto err_out_critical;
 	}
 
-	atomic_set(&ts->next_work, 0);
-	atomic_set(&ts->device_init, 1);
-
 	if (touch_device_func->init == NULL) {
 		TOUCH_INFO_MSG("There is no specific IC init function\n");
 		goto err_out_critical;
 	}
+
+	/* Do the soft reset to make sure the controller is reset OK */
+	if (touch_device_func->ic_ctrl(ts->client, IC_CTRL_RESET_CMD, 0) < 0) {
+		TOUCH_ERR_MSG("RESET FAILED\n");
+		goto err_out_retry;
+	}
+
+	atomic_set(&ts->next_work, 0);
+	atomic_set(&ts->device_init, 1);
 
 	if (touch_device_func->init(ts->client, &ts->fw_info) < 0) {
 		TOUCH_ERR_MSG("specific device initialization fail\n");
@@ -948,6 +958,8 @@ static void touch_fw_upgrade_func(struct work_struct *work_fw_upgrade)
 			hrtimer_start(&ts->timer,
 				ktime_set(0, ts->pdata->role->report_period),
 				HRTIMER_MODE_REL);
+
+		msleep(ts->pdata->role->booting_delay);
 
 		touch_ic_init(ts);
 
@@ -1550,45 +1562,7 @@ static ssize_t store_pointer_location(struct lge_touch_data *ts, const char *buf
  */
 static ssize_t show_charger(struct lge_touch_data *ts, char *buf)
 {
-	int ret = 0;
-
-	switch (ts->charger_type) {
-	case 0:
-		ret = sprintf(buf, "%s\n", "NO CHARGER");
-		break;
-	case 1:
-		ret = sprintf(buf, "%s\n", "WIRELESS");
-		break;
-	case 2:
-		ret = sprintf(buf, "%s\n", "USB");
-		break;
-	case 3:
-		ret = sprintf(buf, "%s\n", "AC");
-		break;
-	}
-
-	return ret;
-}
-
-/* store_charger
- *
- * Store the charger status
- * Syntax: <type> <1:0>  type: 0: NO Charger, 1: WIRELESS, 2: USB, 3: AC
- */
-static ssize_t store_charger(struct lge_touch_data *ts, const char *buf, size_t count)
-{
-	long type;
-
-	if (!kstrtol(buf, 10, &type)) {
-		if (type >= 0 && type <= 3) {
-			/* regardless of charger type */
-			ts->charger_type = type;
-			touch_device_func->ic_ctrl(ts->client,
-				IC_CTRL_CHARGER, ts->charger_type);
-		}
-	}
-
-	return count;
+	return sprintf(buf, "%d\n", ts->charger_type);
 }
 
 static LGE_TOUCH_ATTR(platform_data, S_IRUGO | S_IWUSR, show_platform_data, NULL);
@@ -1601,7 +1575,7 @@ static LGE_TOUCH_ATTR(accuracy, S_IRUGO | S_IWUSR, NULL, store_accuracy_solution
 static LGE_TOUCH_ATTR(show_touches, S_IRUGO | S_IWUSR, show_show_touches, store_show_touches);
 static LGE_TOUCH_ATTR(pointer_location, S_IRUGO | S_IWUSR, show_pointer_location,
 					store_pointer_location);
-static LGE_TOUCH_ATTR(charger, S_IRUGO | S_IWUSR, show_charger, store_charger);
+static LGE_TOUCH_ATTR(charger, S_IRUGO | S_IWUSR, show_charger, NULL);
 
 static struct attribute *lge_touch_attribute_list[] = {
 	&lge_touch_attr_platform_data.attr,
@@ -1669,6 +1643,80 @@ static struct sys_device lge_touch_sys_device = {
 	.id	= 0,
 	.cls	= &lge_touch_sys_class,
 };
+
+#ifdef CONFIG_TOUCHSCREEN_CHARGER_NOTIFY
+static void touch_external_power_changed(struct power_supply *psy)
+{
+	int status;
+	struct lge_touch_data *ts = container_of(psy, struct lge_touch_data, touch_psy);
+
+	status = power_supply_am_i_supplied(psy);
+
+	pr_debug("psy name = %s ... status = %d\n", psy->name, status);
+
+	if (ts->charger_type != status) {
+		ts->charger_type = status;
+		queue_work(touch_wq, &ts->work_charger);
+	}
+}
+
+static enum power_supply_property touch_power_props_mains[] = {
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_ONLINE
+};
+
+static int touch_power_get_property_mains(struct power_supply *psy,
+			enum power_supply_property psp,
+			union power_supply_propval *val)
+{
+	switch (psp) {
+	case POWER_SUPPLY_PROP_PRESENT:
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = 0;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+	return -EINVAL;
+}
+
+/*
+ * Touch work for charger
+ */
+static void touch_work_charger(struct work_struct *work)
+{
+	struct lge_touch_data *ts =
+			container_of(work, struct lge_touch_data, work_charger);
+
+	TOUCH_INFO_MSG("CHARGER = %d\n", ts->charger_type);
+
+	if (ts->curr_resume_state)
+		touch_device_func->ic_ctrl(ts->client,
+					IC_CTRL_CHARGER, ts->charger_type);
+}
+
+static void touch_psy_init(struct lge_touch_data *ts)
+{
+	int rc;
+
+	INIT_WORK(&ts->work_charger, touch_work_charger);
+
+	ts->touch_psy.name = "touch";
+	ts->touch_psy.type = POWER_SUPPLY_TYPE_UNKNOWN;
+	ts->touch_psy.properties = touch_power_props_mains,
+	ts->touch_psy.num_properties = ARRAY_SIZE(touch_power_props_mains);
+	ts->touch_psy.get_property = touch_power_get_property_mains;
+	ts->touch_psy.external_power_changed = touch_external_power_changed;
+
+	rc = power_supply_register(NULL, &ts->touch_psy);
+	if (rc < 0) {
+		pr_err("power_supply_register FAILED*** rc = %d\n", rc);
+	}
+	else {
+		pr_debug("power_supply_register SUCCESS\n");
+	}
+}
+#endif
 
 static int touch_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
@@ -1856,11 +1904,10 @@ static int touch_probe(struct i2c_client *client,
 		ts->accuracy_filter.touch_max_count = one_sec / 2;
 	}
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	ts->early_suspend.suspend = touch_early_suspend;
-	ts->early_suspend.resume = touch_late_resume;
-	register_early_suspend(&ts->early_suspend);
+#ifdef CONFIG_FB
+	ts->fb_suspended = false;
+	ts->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&ts->fb_notif);
 #endif
 
 	/* Register sysfs for making fixed communication path to framework layer */
@@ -1887,6 +1934,10 @@ static int touch_probe(struct i2c_client *client,
 	if (likely(touch_debug_mask & DEBUG_BASE_INFO))
 		TOUCH_INFO_MSG("Touch driver is initialized\n");
 
+#ifdef CONFIG_TOUCHSCREEN_CHARGER_NOTIFY
+	touch_psy_init(ts);
+#endif
+
 	return 0;
 
 err_lge_touch_sysfs_init_and_add:
@@ -1894,7 +1945,7 @@ err_lge_touch_sysfs_init_and_add:
 err_lge_touch_sys_dev_register:
 	sysdev_class_unregister(&lge_touch_sys_class);
 err_lge_touch_sys_class_register:
-	unregister_early_suspend(&ts->early_suspend);
+	fb_unregister_client(&ts->fb_notif);
 	if (ts->pdata->role->operation_mode == INTERRUPT_MODE) {
 		gpio_free(ts->pdata->int_pin);
 		free_irq(ts->client->irq, ts);
@@ -1931,7 +1982,7 @@ static int touch_remove(struct i2c_client *client)
 	sysdev_unregister(&lge_touch_sys_device);
 	sysdev_class_unregister(&lge_touch_sys_class);
 
-	unregister_early_suspend(&ts->early_suspend);
+	fb_unregister_client(&ts->fb_notif);
 
 	if (ts->pdata->role->operation_mode == INTERRUPT_MODE) {
 		gpio_free(ts->pdata->int_pin);
@@ -1948,20 +1999,15 @@ static int touch_remove(struct i2c_client *client)
 	return 0;
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-static void touch_early_suspend(struct early_suspend *h)
+static int touch_suspend(struct i2c_client *client, pm_message_t mesg)
 {
-	struct lge_touch_data *ts =
-			container_of(h, struct lge_touch_data, early_suspend);
-
-	if (unlikely(touch_debug_mask & DEBUG_TRACE))
-		TOUCH_DEBUG_MSG("\n");
+	struct lge_touch_data *ts = i2c_get_clientdata(client);
 
 	ts->curr_resume_state = 0;
 
 	if (ts->fw_upgrade.is_downloading == UNDER_DOWNLOADING) {
-		TOUCH_INFO_MSG("early_suspend is not executed\n");
-		return;
+		TOUCH_INFO_MSG("suspend not executed due to a firmware downloading process\n");
+		return 0;
 	}
 
 	if (ts->pdata->role->operation_mode == INTERRUPT_MODE)
@@ -1977,21 +2023,19 @@ static void touch_early_suspend(struct early_suspend *h)
 	release_all_ts_event(ts);
 
 	touch_power_cntl(ts, ts->pdata->role->suspend_pwr);
+
+	return 0;
 }
 
-static void touch_late_resume(struct early_suspend *h)
+static int touch_resume(struct i2c_client *client)
 {
-	struct lge_touch_data *ts =
-			container_of(h, struct lge_touch_data, early_suspend);
-
-	if (unlikely(touch_debug_mask & DEBUG_TRACE))
-		TOUCH_DEBUG_MSG("\n");
+	struct lge_touch_data *ts = i2c_get_clientdata(client);
 
 	ts->curr_resume_state = 1;
 
 	if (ts->fw_upgrade.is_downloading == UNDER_DOWNLOADING) {
-		TOUCH_INFO_MSG("late_resume is not executed\n");
-		return;
+		TOUCH_INFO_MSG("resume not executed due to a firmware downloading process\n");
+		return 0;
 	}
 
 	touch_power_cntl(ts, ts->pdata->role->resume_pwr);
@@ -2008,17 +2052,54 @@ static void touch_late_resume(struct early_suspend *h)
 			msecs_to_jiffies(ts->pdata->role->booting_delay));
 	else
 		queue_delayed_work(touch_wq, &ts->work_init, 0);
-}
-#endif
 
-#if defined(CONFIG_PM)
-static int touch_suspend(struct device *device)
-{
 	return 0;
 }
 
-static int touch_resume(struct device *device)
+#ifdef CONFIG_FB
+static void touch_fb_suspend(struct lge_touch_data *ts)
 {
+	if (ts->fb_suspended)
+		return;
+
+	touch_suspend(ts->client, PMSG_SUSPEND);
+	ts->fb_suspended = true;
+}
+
+static void touch_fb_resume(struct lge_touch_data *ts)
+{
+        if (!ts->fb_suspended)
+                return;
+
+	touch_resume(ts->client);
+        ts->fb_suspended = false;
+}
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct lge_touch_data *ts = container_of(self, struct lge_touch_data, fb_notif);
+
+	if (evdata && evdata->data && ts) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					touch_fb_resume(ts);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					touch_fb_suspend(ts);
+					break;
+			}
+		}
+	}
+
 	return 0;
 }
 #endif
@@ -2027,23 +2108,17 @@ static struct i2c_device_id lge_ts_id[] = {
 	{LGE_TOUCH_NAME, 0 },
 };
 
-#if defined(CONFIG_PM)
-static struct dev_pm_ops touch_pm_ops = {
-	.suspend = touch_suspend,
-	.resume = touch_resume,
-};
-#endif
-
 static struct i2c_driver lge_touch_driver = {
 	.probe = touch_probe,
 	.remove = touch_remove,
+#ifndef CONFIG_FB
+	.suspend = touch_suspend,
+	.resume = touch_resume,
+#endif
 	.id_table = lge_ts_id,
 	.driver = {
 		.name = LGE_TOUCH_NAME,
 		.owner = THIS_MODULE,
-#if defined(CONFIG_PM)
-		.pm = &touch_pm_ops,
-#endif
 	},
 };
 

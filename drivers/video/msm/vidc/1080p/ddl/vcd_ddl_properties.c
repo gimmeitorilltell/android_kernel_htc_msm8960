@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -322,7 +322,11 @@ static u32 ddl_set_dec_property(struct ddl_client_context *ddl,
 				ddl_set_default_decoder_buffer_req(decoder,
 					true);
 			}
-			DDL_MSG_HIGH("set VCD_I_FRAME_SIZE width = %d"
+			if (decoder->cont_mode) {
+				decoder->adaptive_width = decoder->client_frame_size.width;
+				decoder->adaptive_height = decoder->client_frame_size.height;
+			}
+			DDL_MSG_LOW("set VCD_I_FRAME_SIZE width = %d"
 				" height = %d\n",
 				frame_size->width, frame_size->height);
 			vcd_status = VCD_S_SUCCESS;
@@ -2057,6 +2061,8 @@ void ddl_set_default_dec_property(struct ddl_client_context *ddl)
 	decoder->output_order = VCD_DEC_ORDER_DISPLAY;
 	decoder->field_needed_for_prev_ip = 0;
 	decoder->cont_mode = 0;
+	decoder->adaptive_width = 0;
+	decoder->adaptive_height = 0;
 	decoder->reconfig_detected = false;
 	decoder->dmx_disable = false;
 	ddl_set_default_metadata_flag(ddl);
@@ -2255,6 +2261,8 @@ void ddl_set_default_encoder_buffer_req(struct ddl_encoder_data *encoder)
 		encoder->output_buf_req.min_count + 3;
 	encoder->output_buf_req.max_count    = DDL_MAX_BUFFER_COUNT;
 	encoder->output_buf_req.align	= DDL_LINEAR_BUFFER_ALIGN_BYTES;
+	if (y_cb_cr_size >= VCD_DDL_720P_YUV_BUF_SIZE)
+		y_cb_cr_size = y_cb_cr_size>>1;
 	encoder->output_buf_req.sz =
 		DDL_ALIGN(y_cb_cr_size, DDL_KILO_BYTE(4));
 	ddl_set_default_encoder_metadata_buffer_size(encoder);
@@ -2301,7 +2309,7 @@ u32 ddl_set_default_decoder_buffer_req(struct ddl_decoder_data *decoder,
 			min_dpb = res_trk_get_min_dpb_count();
 			min_dpb_from_res_trk = 1;
 			if (min_dpb < decoder->min_dpb_num) {
-				DDL_MSG_INFO("Warning: cont_mode dpb count"\
+				DDL_MSG_HIGH("Warning: cont_mode dpb count"\
 					"(%u) is less than decoder min dpb count(%u)",
 					min_dpb, decoder->min_dpb_num);
 			}

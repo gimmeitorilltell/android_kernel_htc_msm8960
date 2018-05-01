@@ -26,7 +26,6 @@ static struct msm_rpmrs_level *msm_lpm_levels;
 static int msm_lpm_level_count;
 
 static void msm_lpm_level_update(void)
-
 {
 	unsigned int lpm_level;
 	struct msm_rpmrs_level *level = NULL;
@@ -65,7 +64,6 @@ static void msm_lpm_exit_sleep(void *limits, bool from_idle,
 
 void msm_lpm_show_resources(void)
 {
-
 	/* TODO */
 	return;
 }
@@ -77,7 +75,6 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
 
 	if (!level)
 		return 0;
-
 
 	for (i = 0; i < msm_lpm_level_count; i++, level++) {
 		if (!level->available)

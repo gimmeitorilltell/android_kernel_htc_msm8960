@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2012, 2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,6 +50,9 @@ __asm__ __volatile__ (							\
 #define MSM_IOMMU_ATTR_CACHED_WT	0x3
 
 
+static int msm_iommu_unmap_range(struct iommu_domain *domain, unsigned int va,
+				 unsigned int len);
+
 static inline void clean_pte(unsigned long *start, unsigned long *end,
 			     int redirect)
 {
@@ -82,13 +85,14 @@ static struct msm_iommu_remote_lock msm_iommu_remote_lock;
 static void _msm_iommu_remote_spin_lock_init(void)
 {
 	msm_iommu_remote_lock.lock = smem_alloc(SMEM_SPINLOCK_ARRAY, 32);
-	memset(msm_iommu_remote_lock.lock, 0,
+	if (msm_iommu_remote_lock.lock) {
+		memset(msm_iommu_remote_lock.lock, 0,
 			sizeof(*msm_iommu_remote_lock.lock));
+	}
 }
 
 void msm_iommu_remote_p0_spin_lock(void)
 {
-#ifndef CONFIG_MACH_HTC
 	msm_iommu_remote_lock.lock->flag[PROC_APPS] = 1;
 	msm_iommu_remote_lock.lock->turn = 1;
 
@@ -97,16 +101,13 @@ void msm_iommu_remote_p0_spin_lock(void)
 	while (msm_iommu_remote_lock.lock->flag[PROC_GPU] == 1 &&
 	       msm_iommu_remote_lock.lock->turn == 1)
 		cpu_relax();
-#endif
 }
 
 void msm_iommu_remote_p0_spin_unlock(void)
 {
-#ifndef CONFIG_MACH_HTC
 	smp_mb();
 
 	msm_iommu_remote_lock.lock->flag[PROC_APPS] = 0;
-#endif
 }
 #endif
 
@@ -911,6 +912,7 @@ static int msm_iommu_map_range(struct iommu_domain *domain, unsigned int va,
 			       int prot)
 {
 	unsigned int pa;
+	unsigned int start_va = va;
 	unsigned int offset = 0;
 	unsigned long *fl_table;
 	unsigned long *fl_pte;
@@ -982,12 +984,6 @@ static int msm_iommu_map_range(struct iommu_domain *domain, unsigned int va,
 				chunk_offset = 0;
 				sg = sg_next(sg);
 				pa = get_phys_addr(sg);
-				if (pa == 0) {
-					pr_debug("No dma address for sg %p\n",
-							sg);
-					ret = -EINVAL;
-					goto fail;
-				}
 			}
 			continue;
 		}
@@ -1041,12 +1037,6 @@ static int msm_iommu_map_range(struct iommu_domain *domain, unsigned int va,
 				chunk_offset = 0;
 				sg = sg_next(sg);
 				pa = get_phys_addr(sg);
-				if (pa == 0) {
-					pr_debug("No dma address for sg %p\n",
-							sg);
-					ret = -EINVAL;
-					goto fail;
-				}
 			}
 		}
 
@@ -1059,6 +1049,8 @@ static int msm_iommu_map_range(struct iommu_domain *domain, unsigned int va,
 	__flush_iotlb(domain);
 fail:
 	mutex_unlock(&msm_iommu_lock);
+	if (ret && offset > 0)
+		msm_iommu_unmap_range(domain, start_va, offset);
 	return ret;
 }
 

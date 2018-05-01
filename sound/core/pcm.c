@@ -49,6 +49,8 @@ static struct snd_pcm *snd_pcm_get(struct snd_card *card, int device)
 	struct snd_pcm *pcm;
 
 	list_for_each_entry(pcm, &snd_pcm_devices, list) {
+		if (pcm->internal)
+			continue;
 		if (pcm->card == card && pcm->device == device)
 			return pcm;
 	}
@@ -60,6 +62,8 @@ static int snd_pcm_next(struct snd_card *card, int device)
 	struct snd_pcm *pcm;
 
 	list_for_each_entry(pcm, &snd_pcm_devices, list) {
+		if (pcm->internal)
+			continue;
 		if (pcm->card == card && pcm->device > device)
 			return pcm->device;
 		else if (pcm->card->number > card->number)
@@ -146,7 +150,9 @@ static int snd_pcm_control_ioctl(struct snd_card *card,
 				err = -ENXIO;
 				goto _error;
 			}
+			mutex_lock(&pcm->open_mutex);
 			err = snd_pcm_info_user(substream, info);
+			mutex_unlock(&pcm->open_mutex);
 		_error:
 			mutex_unlock(&register_mutex);
 			return err;
@@ -651,7 +657,7 @@ int snd_pcm_new_stream(struct snd_pcm *pcm, int stream, int substream_count)
 	pstr->stream = stream;
 	pstr->pcm = pcm;
 	pstr->substream_count = substream_count;
-	if (substream_count > 0 && !pcm->internal) {
+	if (substream_count > 0) {
 		err = snd_pcm_stream_proc_init(pstr);
 		if (err < 0) {
 			snd_printk(KERN_ERR "Error in snd_pcm_stream_proc_init\n");
@@ -675,18 +681,15 @@ int snd_pcm_new_stream(struct snd_pcm *pcm, int stream, int substream_count)
 			pstr->substream = substream;
 		else
 			prev->next = substream;
-
-		if (!pcm->internal) {
-			err = snd_pcm_substream_proc_init(substream);
-			if (err < 0) {
-				snd_printk(KERN_ERR "Error in snd_pcm_stream_proc_init\n");
-				if (prev == NULL)
-					pstr->substream = NULL;
-				else
-					prev->next = NULL;
-				kfree(substream);
-				return err;
-			}
+		err = snd_pcm_substream_proc_init(substream);
+		if (err < 0) {
+			snd_printk(KERN_ERR "Error in snd_pcm_stream_proc_init\n");
+			if (prev == NULL)
+				pstr->substream = NULL;
+			else
+				prev->next = NULL;
+			kfree(substream);
+			return err;
 		}
 		substream->group = &substream->self_group;
 		spin_lock_init(&substream->self_group.lock);
@@ -700,9 +703,25 @@ int snd_pcm_new_stream(struct snd_pcm *pcm, int stream, int substream_count)
 
 EXPORT_SYMBOL(snd_pcm_new_stream);
 
-static int _snd_pcm_new(struct snd_card *card, const char *id, int device,
-		int playback_count, int capture_count, bool internal,
-		struct snd_pcm **rpcm)
+/**
+ * snd_pcm_new - create a new PCM instance
+ * @card: the card instance
+ * @id: the id string
+ * @device: the device index (zero based)
+ * @playback_count: the number of substreams for playback
+ * @capture_count: the number of substreams for capture
+ * @rpcm: the pointer to store the new pcm instance
+ *
+ * Creates a new PCM instance.
+ *
+ * The pcm operators have to be set afterwards to the new instance
+ * via snd_pcm_set_ops().
+ *
+ * Returns zero if successful, or a negative error code on failure.
+ */
+int snd_pcm_new(struct snd_card *card, const char *id, int device,
+		int playback_count, int capture_count,
+	        struct snd_pcm ** rpcm)
 {
 	struct snd_pcm *pcm;
 	int err;
@@ -723,7 +742,7 @@ static int _snd_pcm_new(struct snd_card *card, const char *id, int device,
 	}
 	pcm->card = card;
 	pcm->device = device;
-	pcm->internal = internal;
+
 	if (id)
 		strlcpy(pcm->id, id, sizeof(pcm->id));
 	if ((err = snd_pcm_new_stream(pcm, SNDRV_PCM_STREAM_PLAYBACK, playback_count)) < 0) {
@@ -745,28 +764,6 @@ static int _snd_pcm_new(struct snd_card *card, const char *id, int device,
 	return 0;
 }
 
-/**
- * snd_pcm_new - create a new PCM instance
- * @card: the card instance
- * @id: the id string
- * @device: the device index (zero based)
- * @playback_count: the number of substreams for playback
- * @capture_count: the number of substreams for capture
- * @rpcm: the pointer to store the new pcm instance
- *
- * Creates a new PCM instance.
- *
- * The pcm operators have to be set afterwards to the new instance
- * via snd_pcm_set_ops().
- *
- * Returns zero if successful, or a negative error code on failure.
- */
-int snd_pcm_new(struct snd_card *card, const char *id, int device,
-		int playback_count, int capture_count, struct snd_pcm **rpcm)
-{
-	return _snd_pcm_new(card, id, device, playback_count, capture_count,
-			false, rpcm);
-}
 EXPORT_SYMBOL(snd_pcm_new);
 
 static int snd_pcm_new_stream_soc_be(struct snd_pcm *pcm, int stream,
@@ -873,34 +870,6 @@ int snd_pcm_new_soc_be(struct snd_card *card, const char *id, int device,
 }
 
 EXPORT_SYMBOL(snd_pcm_new_soc_be);
-/**
- * snd_pcm_new_internal - create a new internal PCM instance
- * @card: the card instance
- * @id: the id string
- * @device: the device index (zero based - shared with normal PCMs)
- * @playback_count: the number of substreams for playback
- * @capture_count: the number of substreams for capture
- * @rpcm: the pointer to store the new pcm instance
- *
- * Creates a new internal PCM instance with no userspace device or procfs
- * entries. This is used by ASoC Back End PCMs in order to create a PCM that
- * will only be used internally by kernel drivers. i.e. it cannot be opened
- * by userspace. It provides existing ASoC components drivers with a substream
- * and access to any private data.
- *
- * The pcm operators have to be set afterwards to the new instance
- * via snd_pcm_set_ops().
- *
- * Returns zero if successful, or a negative error code on failure.
- */
-int snd_pcm_new_internal(struct snd_card *card, const char *id, int device,
-	int playback_count, int capture_count,
-	struct snd_pcm **rpcm)
-{
-	return _snd_pcm_new(card, id, device, playback_count, capture_count,
-			true, rpcm);
-}
-EXPORT_SYMBOL(snd_pcm_new_internal);
 
 static void snd_pcm_free_stream(struct snd_pcm_str * pstr)
 {
@@ -1138,7 +1107,7 @@ static int snd_pcm_dev_register(struct snd_device *device)
 	}
 	for (cidx = 0; cidx < 2; cidx++) {
 		int devtype = -1;
-		if (pcm->streams[cidx].substream == NULL || pcm->internal)
+		if (pcm->streams[cidx].substream == NULL)
 			continue;
 		switch (cidx) {
 		case SNDRV_PCM_STREAM_PLAYBACK:
@@ -1240,10 +1209,6 @@ static int snd_pcm_dev_disconnect(struct snd_device *device)
 			break;
 		}
 		snd_unregister_device(devtype, pcm->card, pcm->device);
-		if (pcm->streams[cidx].vol_kctl) {
-			snd_ctl_remove(pcm->card, pcm->streams[cidx].vol_kctl);
-			pcm->streams[cidx].vol_kctl = NULL;
-		}
 	}
 	mutex_unlock(&pcm->open_mutex);
  unlock:

@@ -1045,36 +1045,6 @@ uint32_t pm8xxx_adc_btm_end(void)
 }
 EXPORT_SYMBOL_GPL(pm8xxx_adc_btm_end);
 
-#ifdef CONFIG_MACH_HTC
-int pm8xxx_adc_btm_is_cool(void)
-{
-	if (pmic_adc == NULL) {
-		pr_err("PMIC ADC not valid\n");
-		return 0;
-	}
-	if (pmic_adc->batt.btm_cool_fn == NULL) {
-		return 0;
-	}
-
-	return irq_read_line(pmic_adc->btm_cool_irq);
-}
-EXPORT_SYMBOL_GPL(pm8xxx_adc_btm_is_cool);
-
-int pm8xxx_adc_btm_is_warm(void)
-{
-	if (pmic_adc == NULL) {
-		pr_err("PMIC ADC not valid\n");
-		return 0;
-	}
-	if (pmic_adc->batt.btm_warm_fn == NULL) {
-		return 0;
-	}
-
-	return irq_read_line(pmic_adc->btm_warm_irq);
-}
-EXPORT_SYMBOL_GPL(pm8xxx_adc_btm_is_warm);
-#endif
-
 static ssize_t pm8xxx_adc_show(struct device *dev,
 			struct device_attribute *devattr, char *buf)
 {
@@ -1251,11 +1221,6 @@ static int __devinit pm8xxx_adc_probe(struct platform_device *pdev)
 	adc_pmic->adc_num_board_channel = pdata->adc_num_board_channel;
 	adc_pmic->mpp_base = pdata->adc_mpp_base;
 
-	if (pdata->adc_map_btm_table)
-		pm8xxx_adc_set_adcmap_btm_table(pdata->adc_map_btm_table);
-	else
-		pr_warn("default adcmap_btm_table is applied.\n");
-	
 	mutex_init(&adc_pmic->adc_lock);
 	mutex_init(&adc_pmic->mpp_adc_lock);
 	spin_lock_init(&adc_pmic->btm_lock);
@@ -1337,12 +1302,6 @@ static int __devinit pm8xxx_adc_probe(struct platform_device *pdev)
 		pr_err("failed to request pa_therm vreg with error %d\n", rc);
 		pa_therm = NULL;
 	}
-
-#ifdef CONFIG_MACH_HTC
-	if (pdata->pm8xxx_adc_device_register)
-		pdata->pm8xxx_adc_device_register();
-#endif
-
 	return 0;
 }
 

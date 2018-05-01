@@ -46,11 +46,6 @@
 #define DEBUG_MAX_FNAME  16
 #define DEBUG_MAX_RW_BUF 1024
 
-/*
- * For crypto 5.0 which has burst size alignment requirement.
- */
-#define MAX_ALIGN_SIZE  0x40
-
 struct crypto_stat {
 	u32 aead_sha1_aes_enc;
 	u32 aead_sha1_aes_dec;
@@ -551,89 +546,88 @@ static int _disp_stats(int id)
 	int len = 0;
 
 	pstat = &_qcrypto_stat[id];
-	len = scnprintf(_debug_read_buf, DEBUG_MAX_RW_BUF - 1,
+	len = snprintf(_debug_read_buf, DEBUG_MAX_RW_BUF - 1,
 			"\nQualcomm crypto accelerator %d Statistics:\n",
 				id + 1);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK AES CIPHER encryption   : %d\n",
 					pstat->ablk_cipher_aes_enc);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK AES CIPHER decryption   : %d\n",
 					pstat->ablk_cipher_aes_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK DES CIPHER encryption   : %d\n",
 					pstat->ablk_cipher_des_enc);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK DES CIPHER decryption   : %d\n",
 					pstat->ablk_cipher_des_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK 3DES CIPHER encryption  : %d\n",
 					pstat->ablk_cipher_3des_enc);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK 3DES CIPHER decryption  : %d\n",
 					pstat->ablk_cipher_3des_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK CIPHER operation success: %d\n",
 					pstat->ablk_cipher_op_success);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   ABLK CIPHER operation fail   : %d\n",
 					pstat->ablk_cipher_op_fail);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-AES encryption      : %d\n",
 					pstat->aead_sha1_aes_enc);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-AES decryption      : %d\n",
 					pstat->aead_sha1_aes_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-DES encryption      : %d\n",
 					pstat->aead_sha1_des_enc);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-DES decryption      : %d\n",
 					pstat->aead_sha1_des_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-3DES encryption     : %d\n",
 					pstat->aead_sha1_3des_enc);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD SHA1-3DES decryption     : %d\n",
 					pstat->aead_sha1_3des_dec);
 
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD operation success       : %d\n",
 					pstat->aead_op_success);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   AEAD operation fail          : %d\n",
 					pstat->aead_op_fail);
-
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA1 digest			 : %d\n",
 					pstat->sha1_digest);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA256 digest		 : %d\n",
 					pstat->sha256_digest);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA  operation fail          : %d\n",
 					pstat->sha_op_fail);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA  operation success          : %d\n",
 					pstat->sha_op_success);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA1 HMAC digest			 : %d\n",
 					pstat->sha1_hmac_digest);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA256 HMAC digest		 : %d\n",
 					pstat->sha256_hmac_digest);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA HMAC operation fail          : %d\n",
 					pstat->sha_hmac_op_fail);
-	len += scnprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
+	len += snprintf(_debug_read_buf + len, DEBUG_MAX_RW_BUF - len - 1,
 			"   SHA HMAC operation success          : %d\n",
 					pstat->sha_hmac_op_success);
 	return len;
@@ -1157,8 +1151,6 @@ static int _qcrypto_process_ahash(struct crypto_priv *cp,
 		sreq.authklen = SHA_HMAC_KEY_SIZE;
 		break;
 	default:
-		pr_err("Algorithm %d not supported, exiting", sha_ctx->alg);
-		ret = -1;
 		break;
 	};
 	ret =  qce_process_sha_req(cp->qce, &sreq);
@@ -1219,26 +1211,8 @@ static int _qcrypto_process_aead(struct crypto_priv *cp,
 
 			rctx->orig_src = req->src;
 			rctx->orig_dst = req->dst;
-
-			if ((MAX_ALIGN_SIZE*2 > UINT_MAX - qreq.assoclen) ||
-				((MAX_ALIGN_SIZE*2 + qreq.assoclen) >
-					UINT_MAX - qreq.authsize) ||
-				((MAX_ALIGN_SIZE*2 + qreq.assoclen +
-						qreq.authsize) >
-						UINT_MAX - req->cryptlen)) {
-				pr_err("Integer overflow on aead req length.\n");
-				return -EINVAL;
-			}
-
 			rctx->data = kzalloc((req->cryptlen + qreq.assoclen +
-					qreq.authsize + MAX_ALIGN_SIZE * 2),
-					GFP_ATOMIC);
-			if (rctx->data == NULL) {
-				pr_err("Mem Alloc fail rctx->data, err %ld\n",
-							PTR_ERR(rctx->data));
-				kzfree(qreq.assoc);
-				return -ENOMEM;
-			}
+					qreq.authsize + 64*2), GFP_KERNEL);
 
 			memcpy((char *)rctx->data, qreq.assoc, qreq.assoclen);
 
@@ -2144,7 +2118,7 @@ static int qcrypto_count_sg(struct scatterlist *sg, int nbytes)
 {
 	int i;
 
-	for (i = 0; nbytes > 0 && sg != NULL; i++, sg = sg_next(sg))
+	for (i = 0; nbytes > 0; i++, sg = sg_next(sg))
 		nbytes -= sg->length;
 
 	return i;
@@ -2593,6 +2567,7 @@ static int _sha1_hmac_setkey(struct crypto_ahash *tfm, const u8 *key,
 							unsigned int len)
 {
 	struct qcrypto_sha_ctx *sha_ctx = crypto_tfm_ctx(&tfm->base);
+	int ret = 0;
 
 	if (len <= SHA1_BLOCK_SIZE)
 		memcpy(&sha_ctx->authkey[0], key, len);
@@ -2602,15 +2577,18 @@ static int _sha1_hmac_setkey(struct crypto_ahash *tfm, const u8 *key,
 		memcpy(&sha_ctx->digest[0], &_std_init_vector_sha1_uint8[0],
 						SHA1_DIGEST_SIZE);
 		sha_ctx->diglen = SHA1_DIGEST_SIZE;
-		_sha_hmac_setkey(tfm, key, len);
+		ret = _sha_hmac_setkey(tfm, key, len);
+		if (ret)
+			pr_err("SHA1 hmac setkey failed\n");
 	}
-	return 0;
+	return ret;
 }
 
 static int _sha256_hmac_setkey(struct crypto_ahash *tfm, const u8 *key,
 							unsigned int len)
 {
 	struct qcrypto_sha_ctx *sha_ctx = crypto_tfm_ctx(&tfm->base);
+	int ret = 0;
 
 	if (len <= SHA256_BLOCK_SIZE)
 		memcpy(&sha_ctx->authkey[0], key, len);
@@ -2620,10 +2598,12 @@ static int _sha256_hmac_setkey(struct crypto_ahash *tfm, const u8 *key,
 		memcpy(&sha_ctx->digest[0], &_std_init_vector_sha256_uint8[0],
 						SHA256_DIGEST_SIZE);
 		sha_ctx->diglen = SHA256_DIGEST_SIZE;
-		_sha_hmac_setkey(tfm, key, len);
+		ret = _sha_hmac_setkey(tfm, key, len);
+		if (ret)
+			pr_err("SHA256 hmac setkey failed\n");
 	}
 
-	return 0;
+	return ret;
 }
 
 static int _sha_hmac_init_ihash(struct ahash_request *req,

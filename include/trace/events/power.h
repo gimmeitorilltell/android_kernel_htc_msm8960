@@ -90,40 +90,6 @@ TRACE_EVENT(cpu_frequency_switch_end,
 	TP_printk("cpu_id=%lu", (unsigned long)__entry->cpu_id)
 );
 
-DECLARE_EVENT_CLASS(set,
-	TP_PROTO(u32 cpu_id, unsigned long currfreq,
-			unsigned long load),
-	TP_ARGS(cpu_id, currfreq, load),
-
-	TP_STRUCT__entry(
-	    __field(u32, cpu_id)
-	    __field(unsigned long, currfreq)
-	    __field(unsigned long, load)
-	),
-
-	TP_fast_assign(
-	    __entry->cpu_id = (u32) cpu_id;
-	    __entry->currfreq = currfreq;
-	    __entry->load = load;
-	),
-
-	TP_printk("cpu=%u currfreq=%lu load=%lu",
-	      __entry->cpu_id, __entry->currfreq,
-	      __entry->load)
-);
-
-DEFINE_EVENT(set, cpufreq_sampling_event,
-	TP_PROTO(u32 cpu_id, unsigned long currfreq,
-		unsigned long load),
-	TP_ARGS(cpu_id, currfreq, load)
-);
-
-DEFINE_EVENT(set, cpufreq_freq_synced,
-	TP_PROTO(u32 cpu_id, unsigned long currfreq,
-		unsigned long load),
-	TP_ARGS(cpu_id, currfreq, load)
-);
-
 TRACE_EVENT(machine_suspend,
 
 	TP_PROTO(unsigned int state),
@@ -139,6 +105,40 @@ TRACE_EVENT(machine_suspend,
 	),
 
 	TP_printk("state=%lu", (unsigned long)__entry->state)
+);
+
+DECLARE_EVENT_CLASS(wakeup_source,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state),
+
+	TP_STRUCT__entry(
+		__string(       name,           name            )
+		__field(        u64,            state           )
+	),
+
+	TP_fast_assign(
+		__assign_str(name, name);
+		__entry->state = state;
+	),
+
+	TP_printk("%s state=0x%lx", __get_str(name),
+		(unsigned long)__entry->state)
+);
+
+DEFINE_EVENT(wakeup_source, wakeup_source_activate,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state)
+);
+
+DEFINE_EVENT(wakeup_source, wakeup_source_deactivate,
+
+	TP_PROTO(const char *name, unsigned int state),
+
+	TP_ARGS(name, state)
 );
 
 #ifdef CONFIG_EVENT_POWER_TRACING_DEPRECATED

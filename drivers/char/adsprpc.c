@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012, 2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -162,8 +162,8 @@ static void free_mem(struct fastrpc_buf *buf)
 {
 	struct fastrpc_apps *me = &gfa;
 
-	if (!IS_ERR_OR_NULL(buf->handle)) {
-		if (!IS_ERR_OR_NULL(buf->virt)) {
+	if (buf->handle) {
+                if (!IS_ERR_OR_NULL(buf->virt)) {
 			ion_unmap_kernel(me->iclient, buf->handle);
 			buf->virt = 0;
 		}
@@ -178,16 +178,19 @@ static int alloc_mem(struct fastrpc_buf *buf)
 	struct sg_table *sg;
 	int err = 0;
 
+	buf->virt = 0;
+	buf->phys = 0;
 	buf->handle = ion_alloc(clnt, buf->size, SZ_4K,
 				ION_HEAP(ION_AUDIO_HEAP_ID), 0);
 	VERIFY(err, 0 == IS_ERR_OR_NULL(buf->handle));
 	if (err)
 		goto bail;
-	buf->virt = ion_map_kernel(clnt, buf->handle);
+        buf->virt = ion_map_kernel(clnt, buf->handle);
 	VERIFY(err, 0 == IS_ERR_OR_NULL(buf->virt));
 	if (err)
 		goto bail;
-	VERIFY(err, 0 != (sg = ion_sg_table(clnt, buf->handle)));
+        sg = ion_sg_table(clnt, buf->handle);
+	VERIFY(err, 0 == IS_ERR_OR_NULL(sg));
 	if (err)
 		goto bail;
 	VERIFY(err, 1 == sg->nents);
@@ -291,7 +294,8 @@ static int get_page_list(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 	pgstart->size = obuf->size;
 	for (i = 0; i < inbufs + outbufs; ++i) {
 		void *buf;
-		int len, num;
+		int num;
+		ssize_t len;
 
 		list[i].num = 0;
 		list[i].pgidx = 0;
@@ -699,6 +703,11 @@ static int fastrpc_internal_invoke(struct fastrpc_apps *me, uint32_t kernel,
 						&obuf));
 	if (err)
 		goto bail;
+
+	VERIFY(err, NULL != rpra);
+	if (err)
+		goto bail;
+
 	inv_args(sc, rpra, obuf.used);
 	VERIFY(err, 0 == (interrupted =
 			wait_for_completion_interruptible(&ctx->work)));
@@ -840,6 +849,10 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 			if (err)
 				goto bail;
 		}
+		VERIFY(err, NULL != pra);
+		if (err)
+			goto bail;
+
 		VERIFY(err, 0 == copy_from_user(pra, invoke.pra, bufs));
 		if (err)
 			goto bail;

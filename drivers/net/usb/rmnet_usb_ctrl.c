@@ -200,10 +200,8 @@ static void get_encap_work(struct work_struct *w)
 		dev->get_encap_failure_cnt++;
 		usb_unanchor_urb(dev->rcvurb);
 		usb_autopm_put_interface(dev->intf);
-		if (status != -ENODEV)
-			dev_err(dev->devicep,
-			"%s: Error submitting Read URB %d\n",
-			__func__, status);
+		dev_err(dev->devicep,
+		"%s: Error submitting Read URB %d\n", __func__, status);
 		goto resubmit_int_urb;
 	}
 
@@ -216,9 +214,7 @@ resubmit_int_urb:
 		status = usb_submit_urb(dev->inturb, GFP_KERNEL);
 		if (status) {
 			usb_unanchor_urb(dev->inturb);
-			if (status != -ENODEV)
-				dev_err(dev->devicep,
-				"%s: Error re-submitting Int URB %d\n",
+			dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
 				__func__, status);
 		}
 	}
@@ -268,14 +264,6 @@ static void notification_available_cb(struct urb *urb)
 	case USB_CDC_NOTIFY_RESPONSE_AVAILABLE:
 		dev->resp_avail_cnt++;
 
-		/* If MUX is not enabled, wakeup up the open process
-		 * upon first notify response available.
-		 */
-		if (!test_bit(RMNET_CTRL_DEV_READY, &dev->status)) {
-			set_bit(RMNET_CTRL_DEV_READY, &dev->status);
-			wake_up(&dev->open_wait_queue);
-		}
-
 		usb_mark_last_busy(udev);
 		queue_work(dev->wq, &dev->get_encap_work);
 
@@ -290,10 +278,8 @@ resubmit_int_urb:
 	status = usb_submit_urb(urb, GFP_ATOMIC);
 	if (status) {
 		usb_unanchor_urb(urb);
-		if (status != -ENODEV)
-			dev_err(dev->devicep,
-			"%s: Error re-submitting Int URB %d\n",
-			__func__, status);
+		dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
+		__func__, status);
 	}
 
 	return;
@@ -389,9 +375,7 @@ resubmit_int_urb:
 		status = usb_submit_urb(dev->inturb, GFP_ATOMIC);
 		if (status) {
 			usb_unanchor_urb(dev->inturb);
-			if (status != -ENODEV)
-				dev_err(dev->devicep,
-				"%s: Error re-submitting Int URB %d\n",
+			dev_err(dev->devicep, "%s: Error re-submitting Int URB %d\n",
 				__func__, status);
 		}
 	}
@@ -405,9 +389,8 @@ int rmnet_usb_ctrl_start_rx(struct rmnet_ctrl_dev *dev)
 	retval = usb_submit_urb(dev->inturb, GFP_KERNEL);
 	if (retval < 0) {
 		usb_unanchor_urb(dev->inturb);
-		if (retval != -ENODEV)
-			dev_err(dev->devicep,
-			"%s Intr submit %d\n", __func__, retval);
+		dev_err(dev->devicep, "%s Intr submit %d\n", __func__,
+				retval);
 	}
 
 	return retval;
@@ -536,9 +519,7 @@ static int rmnet_usb_ctrl_write(struct rmnet_ctrl_dev *dev,
 	dev->snd_encap_cmd_cnt++;
 	result = usb_submit_urb(sndurb, GFP_KERNEL);
 	if (result < 0) {
-		if (result != -ENODEV)
-			dev_err(dev->devicep,
-			"%s: Submit URB error %d\n",
+		dev_err(dev->devicep, "%s: Submit URB error %d\n",
 			__func__, result);
 		dev->snd_encap_cmd_cnt--;
 		usb_autopm_put_interface(dev->intf);
@@ -892,6 +873,14 @@ static const struct file_operations ctrldev_fops = {
 	.poll = rmnet_ctl_poll,
 };
 
+void rmnet_usb_ctrl_cleanup(struct rmnet_ctrl_dev *dev)
+{
+	if (dev) {
+		usb_free_urb(dev->inturb);
+		kfree(dev->intbuf);
+	}
+}
+
 int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 			 struct usb_host_endpoint *int_in,
 			 unsigned long rmnet_devnum,
@@ -980,11 +969,8 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 
 	*data = (unsigned long)dev;
 
-	/* If MUX is enabled, wakeup the open process here */
-	if (test_bit(RMNET_CTRL_DEV_MUX_EN, &dev->status)) {
-		set_bit(RMNET_CTRL_DEV_READY, &dev->status);
-		wake_up(&dev->open_wait_queue);
-	}
+	set_bit(RMNET_CTRL_DEV_READY, &dev->status);
+	wake_up(&dev->open_wait_queue);
 
 	return 0;
 }

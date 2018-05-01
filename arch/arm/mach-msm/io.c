@@ -204,10 +204,6 @@ static struct map_desc msm8960_io_desc[] __initdata = {
 	MSM_DEVICE(DEBUG_UART),
 #endif
 	MSM_CHIP_DEVICE(QFPROM, MSM8960),
-#ifdef CONFIG_MACH_HTC
-	MSM_DEVICE(KERNEL_FOOTPRINT),
-	MSM_DEVICE(KALLSYMS_SAVE),
-#endif
 };
 
 void __init msm_map_msm8960_io(void)
@@ -287,10 +283,6 @@ static struct map_desc apq8064_io_desc[] __initdata = {
 	},
 	MSM_CHIP_DEVICE(QFPROM, APQ8064),
 	MSM_CHIP_DEVICE(SIC_NON_SECURE, APQ8064),
-#ifdef CONFIG_MACH_HTC
-	MSM_DEVICE(KERNEL_FOOTPRINT),
-	MSM_DEVICE(KALLSYMS_SAVE),
-#endif
 #ifdef CONFIG_DEBUG_APQ8064_UART
 	MSM_DEVICE(DEBUG_UART),
 #endif

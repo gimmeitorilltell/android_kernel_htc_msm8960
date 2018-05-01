@@ -49,7 +49,7 @@ struct snd_msm {
 	struct msm_audio *prtd;
 	unsigned volume;
 };
-static struct snd_msm compressed_audio = {NULL, 0x20002000} ;
+static struct snd_msm compressed_audio = {NULL, 0x2000} ;
 
 static struct audio_locks the_locks;
 
@@ -80,8 +80,7 @@ static struct snd_pcm_hardware msm_compr_hardware_playback = {
 				SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
-	.formats =		SNDRV_PCM_FMTBIT_S16_LE |
-				SNDRV_PCM_FMTBIT_S24_LE,
+	.formats =	      SNDRV_PCM_FMTBIT_S16_LE,
 	.rates =		SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT,
 	.rate_min =	     8000,
 	.rate_max =	     48000,
@@ -105,14 +104,6 @@ static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 	.list = supported_sample_rates,
 	.mask = 0,
 };
-
-static struct msm_compr_q6_ops default_cops;
-static struct msm_compr_q6_ops *cops = &default_cops;
-
-void htc_register_compr_q6_ops(struct msm_compr_q6_ops *ops)
-{
-	cops = ops;
-}
 
 static void compr_event_handler(uint32_t opcode,
 		uint32_t token, uint32_t *payload, void *priv)
@@ -150,7 +141,6 @@ static void compr_event_handler(uint32_t opcode,
 		} else
 			atomic_set(&prtd->pending_buffer, 0);
 		if (runtime->status->hw_ptr >= runtime->control->appl_ptr) {
-			atomic_set(&prtd->pending_buffer, 1);
 			runtime->render_flag |= SNDRV_RENDER_STOPPED;
 			break;
 		}
@@ -608,7 +598,6 @@ static int msm_compr_restart(struct snd_pcm_substream *substream)
 				(prtd->out_head + 1) & (runtime->periods - 1);
 
 		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
-		atomic_set(&prtd->pending_buffer, 0);
 		return 0;
 	}
 	return 0;
@@ -773,7 +762,6 @@ static int msm_compr_open(struct snd_pcm_substream *substream)
 	runtime->private_data = compr;
 	atomic_set(&prtd->eos, 0);
 	compressed_audio.prtd =  &compr->prtd;
-
 	return 0;
 }
 
@@ -781,9 +769,8 @@ int compressed_set_volume(unsigned volume)
 {
 	int rc = 0;
 	if (compressed_audio.prtd && compressed_audio.prtd->audio_client) {
-		rc = q6asm_set_lrgain(compressed_audio.prtd->audio_client,
-						(volume >> 16) & 0xFFFF,
-						volume & 0xFFFF);
+		rc = q6asm_set_volume(compressed_audio.prtd->audio_client,
+								 volume);
 		if (rc < 0) {
 			pr_err("%s: Send Volume command failed"
 					" rc=%d\n", __func__, rc);
@@ -913,11 +900,6 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 	struct snd_dma_buffer *dma_buf = &substream->dma_buffer;
 	struct audio_buffer *buf;
 	int dir, ret;
-#if defined (CONFIG_MACH_M7_UL) || defined(CONFIG_MACH_M4_UL) || defined(CONFIG_MACH_T6_UL) || defined(CONFIG_MACH_T6_DWG) || defined(CONFIG_MACH_ZARA)
-	short bit_width = 24;
-#else
-	short bit_width = 16;
-#endif
 	struct asm_softpause_params softpause = {
 		.enable = SOFT_PAUSE_ENABLE,
 		.period = SOFT_PAUSE_PERIOD,
@@ -936,8 +918,6 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 	else
 		dir = OUT;
 
-	if (runtime->format == SNDRV_PCM_FORMAT_S24_LE)
-		bit_width = 24;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		switch (compr->info.codec_param.codec.id) {
@@ -953,8 +933,8 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 			}
 			break;
 		default:
-			ret = q6asm_open_write_v2(prtd->audio_client,
-					compr->codec, bit_width);
+			ret = q6asm_open_write(prtd->audio_client,
+					compr->codec);
 			if (ret < 0) {
 				pr_err("%s: Session out open failed\n",
 					__func__);
@@ -965,7 +945,7 @@ static int msm_compr_hw_params(struct snd_pcm_substream *substream,
 				prtd->audio_client->perf_mode,
 				prtd->session_id,
 				substream->stream);
-			ret = compressed_set_volume(0);
+			ret = compressed_set_volume(compressed_audio.volume);
 			if (ret < 0)
 				pr_err("%s : Set Volume failed : %d",
 					__func__, ret);
@@ -1183,7 +1163,7 @@ static int msm_compr_ioctl(struct snd_pcm_substream *substream,
 			}
 			rc = wait_event_timeout(the_locks.flush_wait,
 				prtd->cmd_ack, 5 * HZ);
-			if (!rc)
+			if (rc < 0)
 				pr_err("Flush cmd timeout\n");
 			prtd->pcm_irq_pos = 0;
 		}

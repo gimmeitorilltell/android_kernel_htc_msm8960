@@ -329,6 +329,16 @@ static int q6asm_session_alloc(struct audio_client *ac)
 	return -ENOMEM;
 }
 
+static bool q6asm_is_valid_audio_client(struct audio_client *ac)
+{
+	int n;
+	for (n = 1; n <= SESSION_MAX; n++) {
+		if (session[n] == ac)
+			return 1;
+	}
+	return 0;
+}
+
 static void q6asm_session_free(struct audio_client *ac)
 {
 	pr_debug("%s: sessionid[%d]\n", __func__, ac->session);
@@ -609,7 +619,7 @@ int q6asm_audio_client_buf_alloc(unsigned int dir,
 			pr_debug("%s: buffer already allocated\n", __func__);
 			return 0;
 		}
-		if (bufcnt > FRAME_NUM)
+		if (bufcnt != FRAME_NUM)
 			goto fail;
 		mutex_lock(&ac->cmd_lock);
 		buf = kzalloc(((sizeof(struct audio_buffer))*bufcnt),
@@ -731,7 +741,6 @@ int q6asm_audio_client_buf_alloc_contiguous(unsigned int dir,
 		mutex_unlock(&ac->cmd_lock);
 		goto fail;
 	}
-
 	buf[0].client = msm_ion_client_create(UINT_MAX, "audio_client");
 	if (IS_ERR_OR_NULL((void *)buf[0].client)) {
 		pr_err("%s: ION create client for AUDIO failed\n", __func__);
@@ -906,6 +915,12 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		pr_err("ac or priv NULL\n");
 		return -EINVAL;
 	}
+	if (!q6asm_is_valid_audio_client(ac)) {
+		pr_err("%s: audio client pointer is invalid, ac = %p\n",
+				__func__, ac);
+		return -EINVAL;
+	}
+
 	if (ac->session <= 0 || ac->session > 8) {
 		pr_err("%s:Session ID is invalid, session = %d\n", __func__,
 			ac->session);
@@ -2849,11 +2864,6 @@ int q6asm_read(struct audio_client *ac)
 		mutex_lock(&port->lock);
 
 		dsp_buf = port->dsp_buf;
-		if (port->buf == NULL) {
-			pr_err("%s buf is NULL\n", __func__);
-			mutex_unlock(&port->lock);
-			return -EINVAL;
-		}
 		ab = &port->buf[dsp_buf];
 
 		pr_debug("%s:session[%d]dsp-buf[%d][%pK]cpu_buf[%d][%pK]\n",

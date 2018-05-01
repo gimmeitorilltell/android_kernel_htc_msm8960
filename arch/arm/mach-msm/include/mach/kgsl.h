@@ -1,4 +1,4 @@
-/* Copyright (c) 2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,7 +22,7 @@
 #define KGSL_CLK_AXI	0x00000020
 #define KGSL_CLK_ALT_MEM_IFACE 0x00000040
 
-#define KGSL_MAX_PWRLEVELS 5
+#define KGSL_MAX_PWRLEVELS 10
 
 #define KGSL_CONVERT_TO_MBPS(val) \
 	(val*1000*1000U)
@@ -81,7 +81,6 @@ struct kgsl_device_platform_data {
 	int (*set_grp_async)(void);
 	unsigned int idle_timeout;
 	bool strtstp_sleepwake;
-	unsigned int nap_allowed;
 	unsigned int clk_map;
 	unsigned int idle_needed;
 	unsigned int step_mul;

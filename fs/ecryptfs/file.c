@@ -146,6 +146,15 @@ static int read_or_initialize_metadata(struct dentry *dentry)
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
 	struct ecryptfs_crypt_stat *crypt_stat;
 	int rc;
+	struct file *lower_file = ecryptfs_file_to_lower(file);
+
+	/*
+	 * Don't allow mmap on top of file systems that don't support it
+	 * natively.  If FILESYSTEM_MAX_STACK_DEPTH > 2 or ecryptfs
+	 * allows recursive mounting, this will need to be extended.
+	 */
+	if (!lower_file->f_op->mmap)
+		return -ENODEV;
 
 	crypt_stat = &ecryptfs_inode_to_private(inode)->crypt_stat;
 	mount_crypt_stat = &ecryptfs_superblock_to_private(
@@ -180,19 +189,6 @@ static int read_or_initialize_metadata(struct dentry *dentry)
 out:
 	mutex_unlock(&crypt_stat->cs_mutex);
 	return rc;
-}
-
-static int ecryptfs_mmap(struct file *file, struct vm_area_struct *vma)
-{
-	struct file *lower_file = ecryptfs_file_to_lower(file);
-	/*
-	 * Don't allow mmap on top of file systems that don't support it
-	 * natively.  If FILESYSTEM_MAX_STACK_DEPTH > 2 or ecryptfs
-	 * allows recursive mounting, this will need to be extended.
-	 */
-	if (!lower_file->f_op->mmap)
-		return -ENODEV;
-	return generic_file_mmap(file, vma);
 }
 
 /**
@@ -392,7 +388,7 @@ const struct file_operations ecryptfs_main_fops = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = ecryptfs_compat_ioctl,
 #endif
-	.mmap = ecryptfs_mmap,
+	.mmap = generic_file_mmap,
 	.open = ecryptfs_open,
 	.flush = ecryptfs_flush,
 	.release = ecryptfs_release,
